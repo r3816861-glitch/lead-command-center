@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Lead Command Center",
+    "slug": "lead-command-center",
+    "scheme": "leadcc",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0b0f1a"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": { "supportsTablet": false },
+    "android": {
+      "adaptiveIcon": { "backgroundColor": "#0b0f1a" }
+    },
+    "plugins": ["expo-router"]
+  }
+}
