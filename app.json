@@ -9,12 +9,28 @@
     "splash": {
       "backgroundColor": "#0b0f1a"
     },
-    "assetBundlePatterns": ["**/*"],
-    "ios": { "supportsTablet": false },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false
+    },
     "android": {
       "package": "com.raj.leadcommandcenter",
-      "adaptiveIcon": { "backgroundColor": "#0b0f1a" }
+      "adaptiveIcon": {
+        "backgroundColor": "#0b0f1a"
+      }
     },
-    "plugins": ["expo-router"]
+    "plugins": [
+      "expo-router"
+    ],
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "aafff176-a383-49cb-8335-e2150dedcd87"
+      }
+    }
   }
 }
