@@ -19,11 +19,10 @@
         "backgroundColor": "#0b0f1a"
       }
     },
-   "plugins": [
-  "expo-router",
-  "expo-font",
-  "expo-notifications"
-],
+    "plugins": [
+      "expo-router",
+      "expo-font"
+    ],
     "extra": {
       "router": {
         "origin": false

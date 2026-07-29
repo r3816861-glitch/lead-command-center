@@ -4,28 +4,6 @@ import {
   StyleSheet, ActivityIndicator, Platform, KeyboardAvoidingView, SafeAreaView,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { useState, useEffect, useMemo } from "react";
-import {
-  View, Text, TextInput, TouchableOpacity, ScrollView, Modal, Linking,
-  StyleSheet, ActivityIndicator, Platform, KeyboardAvoidingView, SafeAreaView,
-} from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Notifications from "expo-notifications";
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
-});
-
-async function scheduleCallReminder(lead) {
-  const trigger = fmtDateTime(lead.nextCallDate, lead.nextCallTime);
-  if (!trigger || trigger < new Date()) return;
-  try {
-    await Notifications.scheduleNotificationAsync({
-      content: { title: `📞 Call ${lead.name} abhi`, body: `${productCode(lead.product)} · ${lead.bank || ""}` },
-      trigger,
-    });
-  } catch (e) {}
-}
 
 /* ============================== CONSTANTS ============================== */
 const STATUS_ORDER = ["new", "followup", "callback", "hold", "converted", "lost"];
