@@ -4,6 +4,7 @@ import {
   StyleSheet, ActivityIndicator, Platform, KeyboardAvoidingView, SafeAreaView,
   Pressable, FlatList, Dimensions, StatusBar,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import * as Clipboard from "expo-clipboard";
@@ -366,6 +367,8 @@ export default function App() {
 
   const detailLead = leads.find((l) => l.id === detailId);
 
+  const insets = useSafeAreaInsets();
+
   if (loading || !themeLoaded) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: C.bg }]}>
@@ -383,12 +386,14 @@ export default function App() {
         stickyHeaderIndices={[0]}
       >
         {/* ============================== HEADER ============================== */}
-        <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
+        <View style={[styles.header, {
+          backgroundColor: C.card,
+          borderBottomColor: C.border,
+          paddingTop: 14 + insets.top,
+        }]}>
           <View style={styles.headerTop}>
             <View style={styles.brandRow}>
-              <View style={[styles.logoBox, { backgroundColor: C.indigo + "22", borderColor: C.indigo + "66" }]}>
-                <ShieldLogo size={36} color={C.indigo} borderColor={C.cyan} />
-              </View>
+              <GrowthArrowLogo size={38} />
               <View>
                 <Text style={[styles.headerLabel, { color: C.cyan }]}>RAJ · SALES WAR ROOM</Text>
                 <Text style={[styles.headerTitle, { color: C.text }]}>Lead Command Center</Text>
@@ -872,18 +877,45 @@ export default function App() {
   );
 }
 
-// ============================== SHIELD LOGO ==============================
-function ShieldLogo({ size = 36, color = "#6366F1", borderColor = "#06B6D4" }) {
+// ============================== GROWTH ARROW LOGO ==============================
+// Inline SVG-style growth arrow: green ascending steps with a gold arrowhead.
+// Drawn with nested Views to avoid requiring react-native-svg.
+function GrowthArrowLogo({ size = 38 }) {
   const s = size;
+  const stepW = s * 0.16;
+  const gap = s * 0.04;
+  const steps = [
+    { h: s * 0.30, color: "#10B981" },
+    { h: s * 0.50, color: "#34D399" },
+    { h: s * 0.70, color: "#6EE7B7" },
+  ];
   return (
-    <View style={{ width: s, height: s, alignItems: "center", justifyContent: "center" }}>
+    <View style={{
+      width: s, height: s, alignItems: "center", justifyContent: "flex-end",
+      flexDirection: "row", paddingBottom: s * 0.08, paddingRight: s * 0.04,
+    }}>
+      {steps.map((st, i) => (
+        <View key={i} style={{
+          width: stepW, height: st.h,
+          backgroundColor: st.color,
+          borderRadius: 3,
+          marginRight: i < steps.length - 1 ? gap : s * 0.06,
+          alignSelf: "flex-end",
+        }} />
+      ))}
+      {/* Gold arrowhead pointing up-right */}
       <View style={{
-        width: s * 0.82, height: s, backgroundColor: color,
-        borderRadius: s * 0.12, borderBottomLeftRadius: s * 0.35, borderBottomRightRadius: s * 0.35,
-        borderWidth: 1.5, borderColor, alignItems: "center", justifyContent: "center",
-      }}>
-        <Text style={{ color: "#fff", fontSize: s * 0.42, fontWeight: "900" }}>L</Text>
-      </View>
+        width: 0, height: 0,
+        alignSelf: "flex-end",
+        marginBottom: s * 0.50,
+        borderLeftWidth: s * 0.12,
+        borderRightWidth: s * 0.12,
+        borderBottomWidth: s * 0.20,
+        borderLeftColor: "transparent",
+        borderRightColor: "transparent",
+        borderBottomColor: "#FBBF24",
+        transform: [{ rotate: "45deg" }],
+      }} />
     </View>
   );
 }
@@ -1241,6 +1273,8 @@ function LeadForm({ form, setForm, onSave, onCancel, C }) {
       {/* Salaried dynamic fields */}
       {isSalaried && (
         <>
+          <Text style={[styles.label, { color: C.textDim }]}>Monthly Net Salary (₹)</Text>
+          <TextInput value={form.monthlySalary} onChangeText={(v) => set("monthlySalary", v)} placeholder="e.g. 45000" placeholderTextColor={C.textMute} keyboardType="numeric" style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
           <Text style={[styles.label, { color: C.textDim }]}>Additional Income Source</Text>
           <SelectField value={form.additionalIncome} options={ADDITIONAL_INCOME_SOURCES} onChange={(v) => set("additionalIncome", v)} C={C} />
           {form.additionalIncome && form.additionalIncome !== "None" && (
@@ -1348,7 +1382,6 @@ const styles = StyleSheet.create({
   header: { borderBottomWidth: 1, padding: 16 },
   headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  logoBox: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   headerLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 2 },
   headerTitle: { fontSize: 20, fontWeight: "800", marginTop: 2 },
   themeBtn: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", borderWidth: 1 },

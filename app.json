@@ -17,7 +17,7 @@
       "package": "com.raj.leadcommandcenter",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0B0F19"
+        "backgroundColor": "#0A1F14"
       }
     },
     "plugins": [
