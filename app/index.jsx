@@ -11,8 +11,9 @@ import * as Clipboard from "expo-clipboard";
 import {
   STATUS_ORDER, STATUS, INTEREST, PRODUCTS, BANKS, EMPLOYMENT,
   PROPERTY_TYPES, TURNOVER_BANDS, BANKING_TYPES, RENTAL_INCOME_TYPES,
-  COMPANY_CATEGORIES, HOLD_LOST_REASONS, TIME_TAGS, OUTCOME_TAGS,
-  OBJECTIONS, DEFAULT_SETTINGS, mockCopilot,
+  COMPANY_CATEGORIES, ENTITY_CONSTITUTION, NATURE_OF_BUSINESS,
+  ADDITIONAL_INCOME_SOURCES, HOLD_LOST_REASONS, TIME_TAGS, OUTCOME_TAGS,
+  OBJECTIONS, DEFAULT_SETTINGS, getDocumentChecklist, recommendCallTime,
 } from "../lib/constants";
 import {
   uid, productCode, todayISO, addDays, isToday, fmtDateTime, urgency,
@@ -51,13 +52,17 @@ Notifications.setNotificationHandler({
 });
 
 async function ensureNotificationsPermission() {
-  const { status: existing } = await Notifications.getPermissionsAsync();
-  let final = existing;
-  if (existing !== "granted") {
-    const { status } = await Notifications.requestPermissionsAsync();
-    final = status;
+  try {
+    const { status: existing } = await Notifications.getPermissionsAsync();
+    let final = existing;
+    if (existing !== "granted") {
+      const { status } = await Notifications.requestPermissionsAsync();
+      final = status;
+    }
+    return final === "granted";
+  } catch (e) {
+    return false;
   }
-  return final === "granted";
 }
 
 async function scheduleLeadNotification(lead) {
@@ -204,17 +209,6 @@ export default function App() {
     );
   }
 
-  function addNote(id, note) {
-    if (!note.trim()) return;
-    persist(
-      leads.map((l) =>
-        l.id === id
-          ? { ...l, history: [...(l.history || []), { date: Date.now(), note }] }
-          : l
-      )
-    );
-  }
-
   function bumpCounter(id, field) {
     persist(
       leads.map((l) =>
@@ -224,7 +218,6 @@ export default function App() {
   }
 
   function applyOutcome(id, outcome) {
-    const updates = { history: [] };
     const lead = leads.find((l) => l.id === id);
     if (!lead) return;
     const newHistory = [
@@ -244,6 +237,24 @@ export default function App() {
       leads.map((l) =>
         l.id === id
           ? { ...l, nextCallDate: addDays(days), status: "followup" }
+          : l
+      )
+    );
+  }
+
+  function applyRecommendedTime(id) {
+    const lead = leads.find((l) => l.id === id);
+    if (!lead) return;
+    const rec = recommendCallTime(lead);
+    persist(
+      leads.map((l) =>
+        l.id === id
+          ? {
+              ...l,
+              nextCallDate: l.nextCallDate || addDays(1),
+              nextCallTime: rec.time,
+              status: l.status === "new" ? "followup" : l.status,
+            }
           : l
       )
     );
@@ -324,7 +335,7 @@ export default function App() {
           <View style={styles.headerTop}>
             <View style={styles.brandRow}>
               <View style={styles.logoBox}>
-                <LogoMark />
+                <ShieldLogo size={36} />
               </View>
               <View>
                 <Text style={styles.headerLabel}>RAJ · SALES WAR ROOM</Text>
@@ -581,7 +592,7 @@ export default function App() {
               value={quickText}
               onChangeText={setQuickText}
               multiline
-              placeholder="Rampal Goyal 9013427441 Req 1cr lap kal 4 baje..."
+              placeholder="Rampal Goyal 9013427441 Req 1cr lap kal 4 baje construction business turnover 2cr heavy cash cibil 720 roi 9.5..."
               placeholderTextColor={C.textMute}
               style={[styles.input, { minHeight: 100, textAlignVertical: "top" }]}
             />
@@ -654,6 +665,12 @@ export default function App() {
 
               {/* AI Copilot Card */}
               <AICopilotCard lead={detailLead} apiKey={settings.geminiApiKey} />
+
+              {/* Smart Call Time */}
+              <SmartCallTimeCard
+                lead={detailLead}
+                onApply={() => applyRecommendedTime(detailLead.id)}
+              />
 
               {/* Objection Destroyer */}
               <ObjectionBox lead={detailLead} />
@@ -829,7 +846,8 @@ export default function App() {
             />
             <Text style={styles.hint}>
               Bina key ke demo strategy use hogi. Key set karne par real Gemini
-              1.5 Flash analysis milega.
+              1.5 Flash analysis milega — call script, objection counter, aur
+              best call time recommendation ke saath.
             </Text>
 
             <TouchableOpacity
@@ -845,11 +863,29 @@ export default function App() {
   );
 }
 
-// ============================== LOGO ==============================
-function LogoMark() {
+// ============================== SHIELD LOGO ==============================
+function ShieldLogo({ size = 36 }) {
+  const s = size;
   return (
-    <View style={styles.logoInner}>
-      <Text style={styles.logoText}>L</Text>
+    <View style={{ width: s, height: s, alignItems: "center", justifyContent: "center" }}>
+      <View
+        style={{
+          width: s * 0.82,
+          height: s,
+          backgroundColor: C.indigo,
+          borderRadius: s * 0.12,
+          borderTopLeftRadius: s * 0.12,
+          borderTopRightRadius: s * 0.12,
+          borderBottomLeftRadius: s * 0.35,
+          borderBottomRightRadius: s * 0.35,
+          borderWidth: 1.5,
+          borderColor: C.cyan,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Text style={{ color: "#fff", fontSize: s * 0.42, fontWeight: "900" }}>L</Text>
+      </View>
     </View>
   );
 }
@@ -907,7 +943,6 @@ function AICopilotCard({ lead, apiKey }) {
   const [error, setError] = useState(null);
   const [sections, setSections] = useState(null);
   const [raw, setRaw] = useState(null);
-  const [fetched, setFetched] = useState(false);
 
   const fetchCopilot = useCallback(async () => {
     setLoading(true);
@@ -920,7 +955,6 @@ function AICopilotCard({ lead, apiKey }) {
       setError(e.message || "AI analysis fail ho gaya");
     } finally {
       setLoading(false);
-      setFetched(true);
     }
   }, [apiKey, lead]);
 
@@ -981,6 +1015,13 @@ function AICopilotCard({ lead, apiKey }) {
               text={sections.crossSell}
             />
           )}
+          {sections.callTime && (
+            <CopilotSection
+              icon="⏰"
+              label="Best Call Time"
+              text={sections.callTime}
+            />
+          )}
         </View>
       )}
 
@@ -1000,6 +1041,26 @@ function CopilotSection({ icon, label, text }) {
         {icon} {label}
       </Text>
       <Text style={styles.aiSectionText}>{text}</Text>
+    </View>
+  );
+}
+
+// ============================== SMART CALL TIME CARD ==============================
+function SmartCallTimeCard({ lead, onApply }) {
+  const rec = recommendCallTime(lead);
+  return (
+    <View style={styles.callTimeCard}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <Text style={styles.callTimeIcon}>⏰</Text>
+        <Text style={styles.callTimeTitle}>Smart Call Time</Text>
+        <View style={styles.callTimePill}>
+          <Text style={styles.callTimePillText}>{rec.label}</Text>
+        </View>
+      </View>
+      <Text style={styles.callTimeReason}>{rec.reason}</Text>
+      <TouchableOpacity onPress={onApply} style={styles.callTimeBtn}>
+        <Text style={styles.callTimeBtnText}>Schedule at {rec.label}</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -1073,6 +1134,11 @@ function LeadForm({ form, setForm, onSave, onCancel }) {
   const showBusinessFields = isBL || isMSME;
   const showSalaryFields = isPL;
   const showPropertyFields = !showBusinessFields && !showSalaryFields;
+
+  const isSalaried = /salaried/i.test(form.employment || "");
+  const isSelfEmployed = /self-employed/i.test(form.employment || "");
+
+  const checklist = getDocumentChecklist(form);
 
   return (
     <View>
@@ -1151,6 +1217,27 @@ function LeadForm({ form, setForm, onSave, onCancel }) {
         style={styles.input}
       />
 
+      {/* Universal financial fields */}
+      <Text style={styles.label}>Current Bank & ROI (%)</Text>
+      <TextInput
+        value={form.currentROI}
+        onChangeText={(v) => set("currentROI", v)}
+        placeholder="e.g. 9.5"
+        placeholderTextColor={C.textMute}
+        keyboardType="numeric"
+        style={styles.input}
+      />
+
+      <Text style={styles.label}>CIBIL Score</Text>
+      <TextInput
+        value={form.cibilScore}
+        onChangeText={(v) => set("cibilScore", v)}
+        placeholder="e.g. 750"
+        placeholderTextColor={C.textMute}
+        keyboardType="numeric"
+        style={styles.input}
+      />
+
       {/* Property fields */}
       {showPropertyFields && (
         <>
@@ -1214,7 +1301,7 @@ function LeadForm({ form, setForm, onSave, onCancel }) {
       {/* Salary fields */}
       {showSalaryFields && (
         <>
-          <Text style={styles.label}>Monthly Net Salary</Text>
+          <Text style={styles.label}>Monthly Net Salary (₹)</Text>
           <TextInput
             value={form.monthlySalary}
             onChangeText={(v) => set("monthlySalary", v)}
@@ -1233,15 +1320,72 @@ function LeadForm({ form, setForm, onSave, onCancel }) {
       )}
 
       {/* Universal: Employment */}
-      <Text style={styles.label}>Employment / N.O.B.</Text>
+      <Text style={styles.label}>Employment Type</Text>
       <SelectField
         value={form.employment}
         options={EMPLOYMENT}
         onChange={(v) => set("employment", v)}
       />
 
+      {/* Salaried dynamic fields */}
+      {isSalaried && (
+        <>
+          <Text style={styles.label}>Additional Income Source</Text>
+          <SelectField
+            value={form.additionalIncome}
+            options={ADDITIONAL_INCOME_SOURCES}
+            onChange={(v) => set("additionalIncome", v)}
+          />
+          {form.additionalIncome && form.additionalIncome !== "None" && (
+            <>
+              <Text style={styles.label}>Additional Monthly Income (₹)</Text>
+              <TextInput
+                value={form.additionalIncomeAmt}
+                onChangeText={(v) => set("additionalIncomeAmt", v)}
+                placeholder="e.g. 15000"
+                placeholderTextColor={C.textMute}
+                keyboardType="numeric"
+                style={styles.input}
+              />
+            </>
+          )}
+        </>
+      )}
+
+      {/* Self-Employed dynamic fields */}
+      {isSelfEmployed && (
+        <>
+          <Text style={styles.label}>Entity Constitution</Text>
+          <SelectField
+            value={form.entityConstitution}
+            options={ENTITY_CONSTITUTION}
+            onChange={(v) => set("entityConstitution", v)}
+          />
+          <Text style={styles.label}>Nature of Business</Text>
+          <SelectField
+            value={form.natureOfBusiness}
+            options={NATURE_OF_BUSINESS}
+            onChange={(v) => set("natureOfBusiness", v)}
+          />
+          <Text style={styles.label}>Annual Turnover / Gross Profit (₹)</Text>
+          <TextInput
+            value={form.turnover}
+            onChangeText={(v) => set("turnover", v)}
+            placeholder="e.g. 2 Cr"
+            placeholderTextColor={C.textMute}
+            style={styles.input}
+          />
+          <Text style={styles.label}>Additional Income Source</Text>
+          <SelectField
+            value={form.additionalIncome}
+            options={ADDITIONAL_INCOME_SOURCES}
+            onChange={(v) => set("additionalIncome", v)}
+          />
+        </>
+      )}
+
       {/* Universal: Rental Income */}
-      <Text style={styles.label}>Rental Income</Text>
+      <Text style={styles.label}>Rental Income Type</Text>
       <SelectField
         value={form.rentalIncome}
         options={RENTAL_INCOME_TYPES}
@@ -1312,6 +1456,23 @@ function LeadForm({ form, setForm, onSave, onCancel }) {
           </TouchableOpacity>
         ))}
       </View>
+
+      {/* Document Checklist */}
+      {checklist.length > 4 && (
+        <View style={styles.checklistBox}>
+          <Text style={styles.checklistTitle}>📋 Document Checklist</Text>
+          <Text style={styles.checklistSub}>
+            Based on {form.employment || "employment type"}
+            {form.entityConstitution ? ` · ${form.entityConstitution}` : ""}
+          </Text>
+          {checklist.map((doc, i) => (
+            <View key={i} style={styles.checklistItem}>
+              <Text style={styles.checklistBullet}>☐</Text>
+              <Text style={styles.checklistText}>{doc}</Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       <Text style={styles.label}>Notes</Text>
       <TextInput
@@ -1413,8 +1574,6 @@ const styles = StyleSheet.create({
   headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   logoBox: { width: 42, height: 42, borderRadius: 12, backgroundColor: C.indigo + "22", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: C.indigo + "66" },
-  logoInner: { width: 38, height: 38, borderRadius: 10, backgroundColor: C.indigo, alignItems: "center", justifyContent: "center" },
-  logoText: { color: "#fff", fontSize: 20, fontWeight: "800" },
   headerLabel: { color: C.cyan, fontSize: 10, fontWeight: "700", letterSpacing: 2 },
   headerTitle: { color: C.text, fontSize: 20, fontWeight: "800", marginTop: 2 },
   settingsBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.card2, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: C.border },
@@ -1494,6 +1653,15 @@ const styles = StyleSheet.create({
   aiSectionText: { color: C.text, fontSize: 12, lineHeight: 17 },
   aiRefreshBtn: { marginTop: 10, alignSelf: "center", paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8, backgroundColor: C.card, borderWidth: 1, borderColor: C.border },
   aiRefreshText: { color: C.textDim, fontSize: 11, fontWeight: "600" },
+  // Smart Call Time
+  callTimeCard: { backgroundColor: C.card2, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.indigo + "55", marginTop: 12 },
+  callTimeIcon: { fontSize: 16 },
+  callTimeTitle: { color: C.indigo, fontWeight: "700", fontSize: 12 },
+  callTimePill: { backgroundColor: C.indigo + "22", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: C.indigo + "66" },
+  callTimePillText: { color: C.indigo, fontSize: 11, fontWeight: "800" },
+  callTimeReason: { color: C.textDim, fontSize: 11, lineHeight: 16, marginTop: 8 },
+  callTimeBtn: { marginTop: 10, backgroundColor: C.indigo, borderRadius: 8, paddingVertical: 9, alignItems: "center" },
+  callTimeBtnText: { color: "#fff", fontWeight: "700", fontSize: 11 },
   // Objection
   objBox: { backgroundColor: C.card2, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.alert + "44", marginTop: 12 },
   objTitle: { color: C.alert, fontWeight: "700", fontSize: 12 },
@@ -1502,4 +1670,11 @@ const styles = StyleSheet.create({
   objAnswer: { marginTop: 8, backgroundColor: C.bg, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: C.alert + "44" },
   objCopyBtn: { marginTop: 8, alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: C.card2, borderWidth: 1, borderColor: C.border },
   objCopyText: { color: C.cyan, fontSize: 10, fontWeight: "700" },
+  // Document Checklist
+  checklistBox: { backgroundColor: C.card2, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.border, marginTop: 12, marginBottom: 8 },
+  checklistTitle: { color: C.cyan, fontSize: 12, fontWeight: "700" },
+  checklistSub: { color: C.textMute, fontSize: 10, marginTop: 2, marginBottom: 8 },
+  checklistItem: { flexDirection: "row", gap: 8, paddingVertical: 3 },
+  checklistBullet: { color: C.textDim, fontSize: 13 },
+  checklistText: { color: C.text, fontSize: 11.5, flex: 1 },
 });
