@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView, Modal, Linking,
   StyleSheet, ActivityIndicator, Platform, KeyboardAvoidingView, SafeAreaView,
-  Pressable, FlatList, Dimensions,
+  Pressable, FlatList, Dimensions, StatusBar,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
@@ -12,26 +12,30 @@ import {
   STATUS_ORDER, STATUS, INTEREST, PRODUCTS, BANKS, EMPLOYMENT,
   PROPERTY_TYPES, TURNOVER_BANDS, BANKING_TYPES, RENTAL_INCOME_TYPES,
   COMPANY_CATEGORIES, ENTITY_CONSTITUTION, NATURE_OF_BUSINESS,
-  ADDITIONAL_INCOME_SOURCES, HOLD_LOST_REASONS, TIME_TAGS, OUTCOME_TAGS,
-  OBJECTIONS, DEFAULT_SETTINGS, getDocumentChecklist, recommendCallTime,
+  ADDITIONAL_INCOME_SOURCES, HOLD_LOST_REASONS, TIME_TAGS,
+  CALLBACK_OUTCOMES, FILTER_PILLS, CALL_TIME_SLOTS, PIPELINE_STAGES,
+  OBJECTIONS, DEFAULT_SETTINGS, recommendCallTime,
 } from "../lib/constants";
 import {
   uid, productCode, todayISO, addDays, isToday, fmtDateTime, urgency,
   U_STYLE, initials, toTitleCase, amtNum, toRupees, formatINR,
-  buyingIntentScore, intentBand, intentColor, quickParseDeterministic,
-  whatsappTemplate, smsTemplate, leadsToCSV, emptyForm,
-  buildGeminiPrompt, callGemini, parseCopilotResponse,
+  buyingIntentScore, intentBand, intentColor, focusRadarPriority,
+  focusRadarBadge, quickParseDeterministic, whatsappTemplate, smsTemplate,
+  leadsToCSV, emptyForm, buildGeminiPrompt, callGemini, parseCopilotResponse,
 } from "../lib/utils";
-import { loadLeads, saveLeads, loadSettings, saveSettings } from "../lib/storage";
+import {
+  loadLeads, saveLeads, loadSettings, saveSettings, loadTheme, saveTheme,
+} from "../lib/storage";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 
-// ============================== THEME ==============================
-const C = {
+// ============================== THEME PALETTES ==============================
+const DARK = {
   bg: "#0B0F19",
   card: "#151C2C",
   card2: "#1A2236",
   border: "#2A354D",
+  inputBg: "#0B0F19",
   indigo: "#6366F1",
   cyan: "#06B6D4",
   won: "#10B981",
@@ -40,7 +44,47 @@ const C = {
   text: "#F1F5F9",
   textDim: "#94A3B8",
   textMute: "#64748B",
+  shadow: "rgba(99,102,241,0.25)",
 };
+
+const LIGHT = {
+  bg: "#F8FAFC",
+  card: "#FFFFFF",
+  card2: "#F1F5F9",
+  border: "#E2E8F0",
+  inputBg: "#F8FAFC",
+  indigo: "#6366F1",
+  cyan: "#0891B2",
+  won: "#059669",
+  alert: "#DC2626",
+  warn: "#D97706",
+  text: "#0F172A",
+  textDim: "#475569",
+  textMute: "#94A3B8",
+  shadow: "rgba(99,102,241,0.15)",
+};
+
+function useTheme() {
+  const [mode, setMode] = useState("dark");
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const t = await loadTheme();
+      setMode(t);
+      setLoaded(true);
+    })();
+  }, []);
+
+  const toggle = useCallback(async () => {
+    const next = mode === "dark" ? "light" : "dark";
+    setMode(next);
+    await saveTheme(next);
+  }, [mode]);
+
+  const colors = mode === "dark" ? DARK : LIGHT;
+  return { mode, toggle, colors, loaded };
+}
 
 // ============================== NOTIFICATIONS ==============================
 Notifications.setNotificationHandler({
@@ -70,7 +114,7 @@ async function scheduleLeadNotification(lead) {
   const dt = fmtDateTime(lead.nextCallDate, lead.nextCallTime);
   if (!dt) return;
   const triggerMs = dt.getTime() - Date.now();
-  if (triggerMs < 5000) return; // skip past/imminent
+  if (triggerMs < 5000) return;
   const trigger = new Date(Date.now() + triggerMs);
   try {
     await Notifications.scheduleNotificationAsync({
@@ -82,24 +126,20 @@ async function scheduleLeadNotification(lead) {
       },
       trigger,
     });
-  } catch (e) {
-    // best-effort
-  }
+  } catch (e) {}
 }
 
 async function cancelAllScheduled() {
   try {
     const scheduled = await Notifications.getAllScheduledNotificationsAsync();
     await Promise.all(scheduled.map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier)));
-  } catch (e) {
-    // best-effort
-  }
+  } catch (e) {}
 }
 
 async function rescheduleAllNotifications(leads) {
   await cancelAllScheduled();
   for (const lead of leads) {
-    if (!["converted", "lost"].includes(lead.status)) {
+    if (!["converted", "lost", "disbursed"].includes(lead.status)) {
       await scheduleLeadNotification(lead);
     }
   }
@@ -107,6 +147,7 @@ async function rescheduleAllNotifications(leads) {
 
 // ============================== APP ==============================
 export default function App() {
+  const { mode, toggle: toggleTheme, colors: C, loaded: themeLoaded } = useTheme();
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
@@ -117,7 +158,9 @@ export default function App() {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [detailId, setDetailId] = useState(null);
-  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterPill, setFilterPill] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [pipelineStage, setPipelineStage] = useState("all");
   const [showSettings, setShowSettings] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState(DEFAULT_SETTINGS);
 
@@ -158,17 +201,14 @@ export default function App() {
   function saveLead() {
     if (!form.name.trim() || !form.phone.trim()) return;
     const convertedAt =
-      form.status === "converted" ? form.convertedAt || Date.now() : null;
+      form.status === "converted" || form.status === "disbursed"
+        ? form.convertedAt || Date.now()
+        : null;
     if (editingId) {
       persist(
         leads.map((l) =>
           l.id === editingId
-            ? {
-                ...form,
-                id: editingId,
-                convertedAt,
-                history: l.history || form.history,
-              }
+            ? { ...form, id: editingId, convertedAt, history: l.history || form.history }
             : l
         )
       );
@@ -177,9 +217,7 @@ export default function App() {
         ...form,
         id: uid(),
         createdAt: Date.now(),
-        history: form.notes
-          ? [{ date: Date.now(), note: form.notes }]
-          : [],
+        history: form.notes ? [{ date: Date.now(), note: form.notes }] : [],
         convertedAt,
       };
       persist([...leads, newLead]);
@@ -201,8 +239,7 @@ export default function App() {
           ? {
               ...l,
               status,
-              convertedAt:
-                status === "converted" ? l.convertedAt || Date.now() : l.convertedAt,
+              convertedAt: ["converted", "disbursed"].includes(status) ? l.convertedAt || Date.now() : l.convertedAt,
             }
           : l
       )
@@ -210,24 +247,20 @@ export default function App() {
   }
 
   function bumpCounter(id, field) {
-    persist(
-      leads.map((l) =>
-        l.id === id ? { ...l, [field]: (l[field] || 0) + 1 } : l
-      )
-    );
+    persist(leads.map((l) => (l.id === id ? { ...l, [field]: (l[field] || 0) + 1 } : l)));
   }
 
   function applyOutcome(id, outcome) {
     const lead = leads.find((l) => l.id === id);
     if (!lead) return;
-    const newHistory = [
-      ...(lead.history || []),
-      { date: Date.now(), note: outcome.note },
-    ];
+    const newHistory = [...(lead.history || []), { date: Date.now(), note: outcome.note }];
     const patch = { history: newHistory };
-    if (outcome.status) patch.status = outcome.status;
-    if (outcome.reason) patch.reason = outcome.reason;
-    if (outcome.status === "converted")
+    if (outcome.setStatus) patch.status = outcome.setStatus;
+    if (outcome.setReason) patch.reason = outcome.setReason;
+    if (outcome.setInterest) patch.interest = outcome.setInterest;
+    if (outcome.nextDays) patch.nextCallDate = addDays(outcome.nextDays);
+    if (outcome.nextTime) patch.nextCallTime = outcome.nextTime;
+    if (["converted", "disbursed"].includes(outcome.setStatus))
       patch.convertedAt = lead.convertedAt || Date.now();
     persist(leads.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   }
@@ -235,9 +268,15 @@ export default function App() {
   function scheduleNext(id, days) {
     persist(
       leads.map((l) =>
-        l.id === id
-          ? { ...l, nextCallDate: addDays(days), status: "followup" }
-          : l
+        l.id === id ? { ...l, nextCallDate: addDays(days), status: "followup" } : l
+      )
+    );
+  }
+
+  function setCallTime(id, time) {
+    persist(
+      leads.map((l) =>
+        l.id === id ? { ...l, nextCallTime: time, status: l.status === "new" ? "followup" : l.status } : l
       )
     );
   }
@@ -276,287 +315,347 @@ export default function App() {
     setShowSettings(false);
   }
 
+  // ---- Search + Filter logic ----
+  const filteredLeads = useMemo(() => {
+    let result = leads;
+    // Search
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter((l) =>
+        [l.name, l.phone, l.altPhone, l.bank, l.customBank, l.location, l.propertyLocation]
+          .filter(Boolean)
+          .some((v) => v.toLowerCase().includes(q))
+      );
+    }
+    // Filter pills
+    if (filterPill !== "all") {
+      result = result.filter((l) => {
+        switch (filterPill) {
+          case "hot": return l.interest === "hot";
+          case "lapbt": return /LAP|BT/i.test(l.product || "");
+          case "topup": return /Top-Up/i.test(l.product || "");
+          case "today": return urgency(l) === "today" || urgency(l) === "overdue";
+          case "highvalue": return toRupees(l.loanAmount) >= 10000000;
+          default: return true;
+        }
+      });
+    }
+    // Pipeline stage filter
+    if (pipelineStage !== "all" && tab === "pipeline") {
+      result = result.filter((l) => l.status === pipelineStage);
+    }
+    return result;
+  }, [leads, searchQuery, filterPill, pipelineStage, tab]);
+
+  // Focus Radar: sort by priority (high commission deals first)
+  const radarSortedLeads = useMemo(() => {
+    return [...filteredLeads].sort((a, b) => focusRadarPriority(b) - focusRadarPriority(a));
+  }, [filteredLeads]);
+
   const stats = useMemo(() => {
-    const activeLeads = leads.filter(
-      (l) => !["converted", "lost"].includes(l.status)
-    );
+    const activeLeads = leads.filter((l) => !["converted", "lost", "disbursed"].includes(l.status));
     const overdue = activeLeads.filter((l) => urgency(l) === "overdue").length;
     const today = activeLeads.filter((l) => urgency(l) === "today").length;
     const meetings = leads.reduce((s, l) => s + (l.meetingsDone || 0), 0);
     const logins = leads.reduce((s, l) => s + (l.loginsDone || 0), 0);
-    const pipelineValue = activeLeads.reduce(
-      (s, l) => s + toRupees(l.loanAmount),
-      0
-    );
-    const wonToday = leads.filter(
-      (l) => l.status === "converted" && isToday(l.convertedAt)
-    );
-    const earnedToday =
-      wonToday.reduce((s, l) => s + amtNum(l.loanAmount), 0) *
-      (settings.commissionPct / 100) *
-      100000;
-    return {
-      active: activeLeads.length,
-      overdue,
-      today,
-      meetings,
-      logins,
-      pipelineValue,
-      earnedToday,
-      wonTodayCount: wonToday.length,
-      total: leads.length,
-    };
+    const pipelineValue = activeLeads.reduce((s, l) => s + toRupees(l.loanAmount), 0);
+    const wonToday = leads.filter((l) => ["converted", "disbursed"].includes(l.status) && isToday(l.convertedAt));
+    const earnedToday = wonToday.reduce((s, l) => s + amtNum(l.loanAmount), 0) * (settings.commissionPct / 100) * 100000;
+    return { active: activeLeads.length, overdue, today, meetings, logins, pipelineValue, earnedToday, wonTodayCount: wonToday.length, total: leads.length };
   }, [leads, settings.commissionPct]);
 
   const detailLead = leads.find((l) => l.id === detailId);
 
-  const filteredLeads = useMemo(() => {
-    if (filterStatus === "all") return leads;
-    return leads.filter((l) => l.status === filterStatus);
-  }, [leads, filterStatus]);
-
-  if (loading) {
+  if (loading || !themeLoaded) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: C.bg }]}>
         <ActivityIndicator color={C.indigo} size="large" />
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: C.bg }]}>
+      <StatusBar style={mode === "dark" ? "light" : "dark"} translucent={false} />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: 120 }}
         stickyHeaderIndices={[0]}
       >
         {/* ============================== HEADER ============================== */}
-        <View style={styles.header}>
+        <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
           <View style={styles.headerTop}>
             <View style={styles.brandRow}>
-              <View style={styles.logoBox}>
-                <ShieldLogo size={36} />
+              <View style={[styles.logoBox, { backgroundColor: C.indigo + "22", borderColor: C.indigo + "66" }]}>
+                <ShieldLogo size={36} color={C.indigo} borderColor={C.cyan} />
               </View>
               <View>
-                <Text style={styles.headerLabel}>RAJ · SALES WAR ROOM</Text>
-                <Text style={styles.headerTitle}>Lead Command Center</Text>
+                <Text style={[styles.headerLabel, { color: C.cyan }]}>RAJ · SALES WAR ROOM</Text>
+                <Text style={[styles.headerTitle, { color: C.text }]}>Lead Command Center</Text>
               </View>
             </View>
-            <TouchableOpacity
-              onPress={() => {
-                setSettingsDraft(settings);
-                setShowSettings(true);
-              }}
-              style={styles.settingsBtn}
-            >
-              <Text style={styles.settingsBtnText}>⚙</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <TouchableOpacity onPress={toggleTheme} style={[styles.themeBtn, { backgroundColor: C.card2, borderColor: C.border }]}>
+                <Text style={{ fontSize: 16 }}>{mode === "dark" ? "☀" : "☾"}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => { setSettingsDraft(settings); setShowSettings(true); }}
+                style={[styles.settingsBtn, { backgroundColor: C.card2, borderColor: C.border }]}
+              >
+                <Text style={[styles.settingsBtnText, { color: C.textDim }]}>⚙</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
+          {/* Search Bar */}
+          <View style={[styles.searchBar, { backgroundColor: C.card2, borderColor: C.border }]}>
+            <Text style={{ fontSize: 14, color: C.textMute }}>🔍</Text>
+            <TextInput
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Name, phone, bank, location..."
+              placeholderTextColor={C.textMute}
+              style={[styles.searchInput, { color: C.text }]}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery("")}>
+                <Text style={{ color: C.textMute, fontSize: 16 }}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Filter Pills */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginTop: 10 }}>
+            {FILTER_PILLS.map((p) => (
+              <TouchableOpacity
+                key={p.key}
+                onPress={() => setFilterPill(p.key)}
+                style={[styles.filterPill, {
+                  backgroundColor: filterPill === p.key ? C.indigo : C.card2,
+                  borderColor: filterPill === p.key ? C.indigo : C.border,
+                }]}
+              >
+                <Text style={[styles.filterPillText, { color: filterPill === p.key ? "#fff" : C.textDim }]}>
+                  {p.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
           {/* Earn box */}
-          <View style={styles.earnBox}>
-            <Text style={styles.earnLabel}>AAJ KI KAMAI</Text>
-            <Text style={styles.earnValue}>
+          <View style={[styles.earnBox, { backgroundColor: C.card2, borderColor: C.won + "44" }]}>
+            <Text style={[styles.earnLabel, { color: C.won }]}>AAJ KI KAMAI</Text>
+            <Text style={[styles.earnValue, { color: C.won }]}>
               ₹{Math.round(stats.earnedToday).toLocaleString("en-IN")}
             </Text>
-            <Text style={styles.earnSub}>{stats.wonTodayCount} deal close aaj</Text>
+            <Text style={[styles.earnSub, { color: C.textMute }]}>{stats.wonTodayCount} deal close aaj</Text>
           </View>
 
           {/* Metric grid */}
           <View style={styles.metricGrid}>
-            <MetricCard
-              label="Meetings Done"
-              value={String(stats.meetings)}
-              color={C.indigo}
-            />
-            <MetricCard
-              label="Files Logged In"
-              value={String(stats.logins)}
-              color={C.cyan}
-            />
-            <MetricCard
-              label="Overdue Calls"
-              value={String(stats.overdue)}
-              color={C.alert}
-            />
-            <MetricCard
-              label="Active Pipeline"
-              value={formatINR(stats.pipelineValue)}
-              color={C.won}
-              small
-            />
+            <MetricCard label="Meetings" value={String(stats.meetings)} color={C.indigo} C={C} />
+            <MetricCard label="Logins" value={String(stats.logins)} color={C.cyan} C={C} />
+            <MetricCard label="Overdue" value={String(stats.overdue)} color={C.alert} C={C} />
+            <MetricCard label="Pipeline" value={formatINR(stats.pipelineValue)} color={C.won} C={C} small />
           </View>
         </View>
 
         {/* ============================== TABS ============================== */}
-        <View style={styles.tabRow}>
-          {["pipeline", "list"].map((t) => (
+        <View style={[styles.tabRow, { backgroundColor: C.bg }]}>
+          {["pipeline", "radar", "list"].map((t) => (
             <TouchableOpacity
               key={t}
               onPress={() => setTab(t)}
-              style={[styles.tabBtn, tab === t && styles.tabBtnActive]}
+              style={[styles.tabBtn, tab === t && { backgroundColor: C.indigo + "22", borderColor: C.indigo }]}
             >
-              <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>
-                {t === "pipeline" ? "Pipeline" : "List"}
+              <Text style={[styles.tabText, { color: tab === t ? C.indigo : C.textMute }]}>
+                {t === "pipeline" ? "Pipeline" : t === "radar" ? "Focus Radar" : "List"}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* ============================== PIPELINE ============================== */}
+        {/* ============================== PIPELINE TRACKER ============================== */}
         {tab === "pipeline" && (
-          <ScrollView
-            horizontal
-            style={{ marginTop: 12 }}
-            contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
-            showsHorizontalScrollIndicator={false}
-          >
-            {STATUS_ORDER.map((key) => {
-              const col = leads.filter((l) => l.status === key);
-              return (
-                <View key={key} style={{ width: 210 }}>
-                  <View style={styles.colHeader}>
-                    <View
-                      style={[styles.dot, { backgroundColor: STATUS[key].color }]}
-                    />
-                    <Text style={styles.colTitle}>{STATUS[key].label}</Text>
-                    <Text style={styles.colCount}>{col.length}</Text>
-                  </View>
-                  {col.length === 0 && (
-                    <View style={styles.emptyCol}>
-                      <Text style={styles.emptyColText}>Khaali</Text>
+          <View style={{ marginTop: 12 }}>
+            {/* Stage filter chips */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingBottom: 10 }}>
+              <TouchableOpacity
+                onPress={() => setPipelineStage("all")}
+                style={[styles.filterPill, { backgroundColor: pipelineStage === "all" ? C.indigo : C.card2, borderColor: pipelineStage === "all" ? C.indigo : C.border }]}
+              >
+                <Text style={[styles.filterPillText, { color: pipelineStage === "all" ? "#fff" : C.textDim }]}>All Stages</Text>
+              </TouchableOpacity>
+              {PIPELINE_STAGES.map((s) => (
+                <TouchableOpacity
+                  key={s.key}
+                  onPress={() => setPipelineStage(s.key)}
+                  style={[styles.filterPill, {
+                    backgroundColor: pipelineStage === s.key ? s.color : C.card2,
+                    borderColor: pipelineStage === s.key ? s.color : C.border,
+                  }]}
+                >
+                  <Text style={[styles.filterPillText, { color: pipelineStage === s.key ? "#fff" : C.textDim }]}>
+                    {s.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {/* Horizontal pipeline columns */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}>
+              {(pipelineStage === "all" ? PIPELINE_STAGES : PIPELINE_STAGES.filter((s) => s.key === pipelineStage)).map((stage) => {
+                const col = filteredLeads.filter((l) => l.status === stage.key);
+                return (
+                  <View key={stage.key} style={{ width: 210 }}>
+                    <View style={styles.colHeader}>
+                      <View style={[styles.dot, { backgroundColor: stage.color }]} />
+                      <Text style={[styles.colTitle, { color: C.text }]}>{stage.label}</Text>
+                      <Text style={[styles.colCount, { color: C.textMute }]}>{col.length}</Text>
                     </View>
-                  )}
-                  {col.map((lead) => {
-                    const score = buyingIntentScore(lead);
-                    return (
-                      <TouchableOpacity
-                        key={lead.id}
-                        onPress={() => setDetailId(lead.id)}
-                        style={styles.card}
-                      >
-                        <Text style={styles.cardName} numberOfLines={1}>
-                          {lead.name}
-                        </Text>
-                        <Text style={styles.cardSub}>
-                          {productCode(lead.product)} · {lead.bank || "—"}
-                        </Text>
-                        <View
-                          style={{
-                            flexDirection: "row",
-                            justifyContent: "space-between",
-                            marginTop: 6,
-                            alignItems: "center",
-                          }}
+                    {col.length === 0 && (
+                      <View style={[styles.emptyCol, { borderColor: C.border }]}>
+                        <Text style={[styles.emptyColText, { color: C.textMute }]}>Khaali</Text>
+                      </View>
+                    )}
+                    {col.map((lead) => {
+                      const score = buyingIntentScore(lead);
+                      const badge = focusRadarBadge(lead);
+                      return (
+                        <TouchableOpacity
+                          key={lead.id}
+                          onPress={() => setDetailId(lead.id)}
+                          style={[styles.card, { backgroundColor: C.card, borderColor: C.border }, styles.cardShadow(C)]}
                         >
-                          {lead.loanAmount ? (
-                            <Text style={{ color: C.won, fontSize: 10.5, fontWeight: "600" }}>
-                              ₹{lead.loanAmount}
-                            </Text>
-                          ) : (
-                            <View />
-                          )}
-                          <View
-                            style={[
-                              styles.scorePill,
-                              { backgroundColor: intentColor(score) + "22", borderColor: intentColor(score) },
-                            ]}
-                          >
-                            <Text
-                              style={{
-                                color: intentColor(score),
-                                fontSize: 10,
-                                fontWeight: "700",
-                              }}
-                            >
-                              {score}
-                            </Text>
+                          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+                            <Text style={[styles.cardName, { color: C.text }]} numberOfLines={1}>{lead.name}</Text>
+                            {badge && (
+                              <View style={[styles.radarBadge, { backgroundColor: badge.color + "22", borderColor: badge.color }]}>
+                                <Text style={{ color: badge.color, fontSize: 8, fontWeight: "800" }}>{badge.label}</Text>
+                              </View>
+                            )}
                           </View>
+                          <Text style={[styles.cardSub, { color: C.textMute }]}>
+                            {productCode(lead.product)} · {lead.bank === "Other" ? lead.customBank || "Other" : lead.bank || "—"}
+                          </Text>
+                          <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6, alignItems: "center" }}>
+                            {lead.loanAmount ? (
+                              <Text style={{ color: C.won, fontSize: 10.5, fontWeight: "600" }}>₹{lead.loanAmount}</Text>
+                            ) : <View />}
+                            <View style={[styles.scorePill, { backgroundColor: intentColor(score) + "22", borderColor: intentColor(score) }]}>
+                              <Text style={{ color: intentColor(score), fontSize: 10, fontWeight: "700" }}>{score}</Text>
+                            </View>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* ============================== FOCUS RADAR ============================== */}
+        {tab === "radar" && (
+          <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
+            <Text style={[styles.radarTitle, { color: C.text }]}>🎯 Focus Radar</Text>
+            <Text style={[styles.radarSub, { color: C.textMute }]}>
+              High-commission deals sorted by priority — loan amount, CIBIL, call timing
+            </Text>
+            {radarSortedLeads.length === 0 && (
+              <Text style={[styles.emptyText, { color: C.textMute }]}>Koi lead nahi hai.</Text>
+            )}
+            {radarSortedLeads.map((lead, idx) => {
+              const score = buyingIntentScore(lead);
+              const badge = focusRadarBadge(lead);
+              const u = urgency(lead);
+              const priority = focusRadarPriority(lead);
+              return (
+                <TouchableOpacity
+                  key={lead.id}
+                  onPress={() => setDetailId(lead.id)}
+                  style={[styles.radarRow, { backgroundColor: C.card, borderColor: C.border }, styles.cardShadow(C)]}
+                >
+                  <View style={styles.radarRank}>
+                    <Text style={[styles.radarRankText, { color: idx < 3 ? C.alert : C.textMute }]}>
+                      #{idx + 1}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <Text style={[styles.cardName, { color: C.text }]} numberOfLines={1}>{lead.name}</Text>
+                      {badge && (
+                        <View style={[styles.radarBadge, { backgroundColor: badge.color + "22", borderColor: badge.color }]}>
+                          <Text style={{ color: badge.color, fontSize: 8, fontWeight: "800" }}>{badge.label}</Text>
                         </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
+                      )}
+                    </View>
+                    <Text style={[styles.cardSub, { color: C.textMute }]}>
+                      {productCode(lead.product)} · ₹{lead.loanAmount || "—"}
+                      {lead.cibilScore ? ` · CIBIL ${lead.cibilScore}` : ""}
+                    </Text>
+                    {u === "overdue" && (
+                      <Text style={{ color: C.alert, fontSize: 9, fontWeight: "700", marginTop: 2 }}>OVERDUE CALL</Text>
+                    )}
+                    {u === "today" && (
+                      <Text style={{ color: C.warn, fontSize: 9, fontWeight: "700", marginTop: 2 }}>AAJ CALL KARO</Text>
+                    )}
+                  </View>
+                  <View style={{ alignItems: "flex-end" }}>
+                    <Text style={{ color: intentColor(score), fontSize: 11, fontWeight: "700" }}>{score}</Text>
+                    <Text style={{ color: C.textMute, fontSize: 9, marginTop: 2 }}>{Math.round(priority)} pts</Text>
+                  </View>
+                </TouchableOpacity>
               );
             })}
-          </ScrollView>
+          </View>
         )}
 
         {/* ============================== LIST ============================== */}
         {tab === "list" && (
           <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
-            {/* Filter chips */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 6, paddingBottom: 10 }}
-            >
-              <FilterChip
-                label="All"
-                active={filterStatus === "all"}
-                onPress={() => setFilterStatus("all")}
-              />
-              {STATUS_ORDER.map((k) => (
-                <FilterChip
-                  key={k}
-                  label={STATUS[k].label}
-                  active={filterStatus === k}
-                  onPress={() => setFilterStatus(k)}
-                />
-              ))}
-            </ScrollView>
-
-            {filteredLeads.length === 0 && (
-              <Text style={styles.emptyText}>
+            {radarSortedLeads.length === 0 && (
+              <Text style={[styles.emptyText, { color: C.textMute }]}>
                 Koi lead nahi hai. + dabao ya Quick Add use karo.
               </Text>
             )}
-            {filteredLeads.map((lead) => {
+            {radarSortedLeads.map((lead) => {
               const u = urgency(lead);
               const dt = fmtDateTime(lead.nextCallDate, lead.nextCallTime);
               const score = buyingIntentScore(lead);
+              const badge = focusRadarBadge(lead);
               return (
                 <TouchableOpacity
                   key={lead.id}
                   onPress={() => setDetailId(lead.id)}
-                  style={styles.listRow}
+                  style={[styles.listRow, { backgroundColor: C.card, borderColor: C.border }, styles.cardShadow(C)]}
                 >
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{initials(lead.name)}</Text>
+                  <View style={[styles.avatar, { backgroundColor: C.card2 }]}>
+                    <Text style={[styles.avatarText, { color: C.cyan }]}>{initials(lead.name)}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.cardName}>{lead.name}</Text>
-                    <Text style={styles.cardSub}>
-                      {productCode(lead.product)} · {lead.bank || "—"}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <Text style={[styles.cardName, { color: C.text }]} numberOfLines={1}>{lead.name}</Text>
+                      {badge && (
+                        <View style={[styles.radarBadge, { backgroundColor: badge.color + "22", borderColor: badge.color }]}>
+                          <Text style={{ color: badge.color, fontSize: 8, fontWeight: "800" }}>{badge.label}</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.cardSub, { color: C.textMute }]}>
+                      {productCode(lead.product)} · {lead.bank === "Other" ? lead.customBank || "Other" : lead.bank || "—"}
                       {lead.loanAmount ? ` · ₹${lead.loanAmount}` : ""}
                     </Text>
                   </View>
                   <View style={{ alignItems: "flex-end" }}>
-                    <Text
-                      style={{
-                        color: intentColor(score),
-                        fontSize: 11,
-                        fontWeight: "700",
-                      }}
-                    >
-                      {score}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.badge,
-                        { color: STATUS[lead.status].color },
-                      ]}
-                    >
-                      {STATUS[lead.status].label}
+                    <Text style={{ color: intentColor(score), fontSize: 11, fontWeight: "700" }}>{score}</Text>
+                    <Text style={[styles.badge, { color: STATUS[lead.status]?.color || C.textMute }]}>
+                      {STATUS[lead.status]?.label || lead.status}
                     </Text>
                     {dt && (
-                      <Text
-                        style={{ color: U_STYLE[u].color, fontSize: 10, marginTop: 2 }}
-                      >
-                        {dt.toLocaleDateString("en-IN", {
-                          day: "2-digit",
-                          month: "short",
-                        })}
+                      <Text style={{ color: U_STYLE[u].color, fontSize: 10, marginTop: 2 }}>
+                        {dt.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
                       </Text>
                     )}
                   </View>
@@ -568,41 +667,30 @@ export default function App() {
       </ScrollView>
 
       {/* ============================== FAB + QUICK ============================== */}
-      <TouchableOpacity
-        onPress={() => setShowQuick(true)}
-        style={styles.quickBtn}
-      >
-        <Text style={styles.quickBtnText}>✨ Quick Add</Text>
+      <TouchableOpacity onPress={() => setShowQuick(true)} style={[styles.quickBtn, { backgroundColor: C.card, borderColor: C.indigo }, styles.cardShadow(C)]}>
+        <Text style={[styles.quickBtnText, { color: C.indigo }]}>✨ Quick Add</Text>
       </TouchableOpacity>
-      <TouchableOpacity onPress={openAdd} style={styles.fab}>
+      <TouchableOpacity onPress={openAdd} style={[styles.fab, { backgroundColor: C.indigo }, styles.cardShadow(C)]}>
         <Text style={{ color: "#fff", fontSize: 26, fontWeight: "600" }}>+</Text>
       </TouchableOpacity>
 
       {/* ============================== QUICK ADD MODAL ============================== */}
-      <Modal
-        visible={showQuick}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowQuick(false)}
-      >
+      <Modal visible={showQuick} transparent animationType="slide" onRequestClose={() => setShowQuick(false)}>
         <View style={styles.modalWrap}>
-          <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>Jaldi Add Karo</Text>
+          <View style={[styles.sheet, { backgroundColor: C.card }]}>
+            <Text style={[styles.sheetTitle, { color: C.text }]}>Jaldi Add Karo</Text>
             <TextInput
               value={quickText}
               onChangeText={setQuickText}
               multiline
-              placeholder="Rampal Goyal 9013427441 Req 1cr lap kal 4 baje construction business turnover 2cr heavy cash cibil 720 roi 9.5..."
+              placeholder="Rampal 9013427441 Req 1cr lap kal 4 baje construction turnover 2cr itr 15l cibil 720 roi 9.5 top-up 20l..."
               placeholderTextColor={C.textMute}
-              style={[styles.input, { minHeight: 100, textAlignVertical: "top" }]}
+              style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text, minHeight: 100, textAlignVertical: "top" }]}
             />
-            <TouchableOpacity onPress={quickAdd} style={styles.primaryBtn}>
+            <TouchableOpacity onPress={quickAdd} style={[styles.primaryBtn, { backgroundColor: C.indigo }]}>
               <Text style={styles.primaryBtnText}>Auto-fill karo</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setShowQuick(false)}
-              style={{ marginTop: 10, alignItems: "center" }}
-            >
+            <TouchableOpacity onPress={() => setShowQuick(false)} style={{ marginTop: 10, alignItems: "center" }}>
               <Text style={{ color: C.textMute }}>Cancel</Text>
             </TouchableOpacity>
           </View>
@@ -610,33 +698,17 @@ export default function App() {
       </Modal>
 
       {/* ============================== LEAD FORM MODAL ============================== */}
-      <Modal
-        visible={showForm}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowForm(false)}
-      >
+      <Modal visible={showForm} transparent animationType="slide" onRequestClose={() => setShowForm(false)}>
         <View style={styles.modalWrap}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-            style={{ flex: 1, justifyContent: "flex-end" }}
-          >
-            <ScrollView style={styles.sheetTall}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1, justifyContent: "flex-end" }}>
+            <ScrollView style={[styles.sheetTall, { backgroundColor: C.card }]}>
               <View style={styles.sheetHeader}>
-                <Text style={styles.sheetTitle}>
-                  {editingId ? "Edit Karo" : "Naya Lead"}
-                </Text>
+                <Text style={[styles.sheetTitle, { color: C.text }]}>{editingId ? "Edit Karo" : "Naya Lead"}</Text>
                 <TouchableOpacity onPress={() => setShowForm(false)}>
                   <Text style={{ color: C.textMute, fontSize: 18 }}>✕</Text>
                 </TouchableOpacity>
               </View>
-
-              <LeadForm
-                form={form}
-                setForm={setForm}
-                onSave={saveLead}
-                onCancel={() => setShowForm(false)}
-              />
+              <LeadForm form={form} setForm={setForm} onSave={saveLead} onCancel={() => setShowForm(false)} C={C} />
             </ScrollView>
           </KeyboardAvoidingView>
         </View>
@@ -644,157 +716,114 @@ export default function App() {
 
       {/* ============================== DETAIL MODAL ============================== */}
       {detailLead && (
-        <Modal
-          visible
-          transparent
-          animationType="slide"
-          onRequestClose={() => setDetailId(null)}
-        >
+        <Modal visible transparent animationType="slide" onRequestClose={() => setDetailId(null)}>
           <View style={styles.modalWrap}>
-            <ScrollView style={styles.sheetTall}>
+            <ScrollView style={[styles.sheetTall, { backgroundColor: C.card }]}>
               <View style={styles.sheetHeader}>
-                <Text style={styles.sheetTitle}>{detailLead.name}</Text>
+                <Text style={[styles.sheetTitle, { color: C.text }]}>{detailLead.name}</Text>
                 <TouchableOpacity onPress={() => setDetailId(null)}>
                   <Text style={{ color: C.textMute, fontSize: 18 }}>✕</Text>
                 </TouchableOpacity>
               </View>
-              <Text style={styles.cardSub}>
-                {productCode(detailLead.product)} · {detailLead.bank || "—"} ·{" "}
-                {detailLead.phone}
+              <Text style={[styles.cardSub, { color: C.textMute }]}>
+                {productCode(detailLead.product)} · {detailLead.bank === "Other" ? detailLead.customBank || "Other" : detailLead.bank || "—"} · {detailLead.phone}
               </Text>
 
               {/* AI Copilot Card */}
-              <AICopilotCard lead={detailLead} apiKey={settings.geminiApiKey} />
+              <AICopilotCard lead={detailLead} apiKey={settings.geminiApiKey} C={C} />
 
               {/* Smart Call Time */}
-              <SmartCallTimeCard
-                lead={detailLead}
-                onApply={() => applyRecommendedTime(detailLead.id)}
-              />
+              <SmartCallTimeCard lead={detailLead} onApply={() => applyRecommendedTime(detailLead.id)} C={C} />
+
+              {/* Callback Matrix */}
+              <CallbackMatrix lead={detailLead} onOutcome={(o) => applyOutcome(detailLead.id, o)} C={C} />
 
               {/* Objection Destroyer */}
-              <ObjectionBox lead={detailLead} />
+              <ObjectionBox lead={detailLead} C={C} />
 
               {/* Counters */}
               <View style={styles.counterRow}>
-                <CounterBtn
-                  label="Meeting"
-                  count={detailLead.meetingsDone || 0}
-                  onPress={() => bumpCounter(detailLead.id, "meetingsDone")}
-                  color={C.indigo}
-                />
-                <CounterBtn
-                  label="File Login"
-                  count={detailLead.loginsDone || 0}
-                  onPress={() => bumpCounter(detailLead.id, "loginsDone")}
-                  color={C.cyan}
-                />
+                <CounterBtn label="Meeting" count={detailLead.meetingsDone || 0} onPress={() => bumpCounter(detailLead.id, "meetingsDone")} color={C.indigo} C={C} />
+                <CounterBtn label="File Login" count={detailLead.loginsDone || 0} onPress={() => bumpCounter(detailLead.id, "loginsDone")} color={C.cyan} C={C} />
               </View>
 
               {/* Status */}
-              <Text style={[styles.label, { marginTop: 14 }]}>Status badlo</Text>
+              <Text style={[styles.label, { color: C.textDim, marginTop: 14 }]}>Status badlo</Text>
               <View style={styles.chipRow}>
-                {STATUS_ORDER.map((k) => (
+                {PIPELINE_STAGES.map((s) => (
                   <TouchableOpacity
-                    key={k}
-                    onPress={() => quickStatus(detailLead.id, k)}
-                    style={[
-                      styles.chip,
-                      detailLead.status === k && styles.chipActive,
-                    ]}
+                    key={s.key}
+                    onPress={() => quickStatus(detailLead.id, s.key)}
+                    style={[styles.chip, { backgroundColor: C.inputBg, borderColor: detailLead.status === s.key ? s.color : C.border }]}
                   >
-                    <Text
-                      style={[
-                        styles.chipText,
-                        detailLead.status === k && styles.chipTextActive,
-                      ]}
-                    >
-                      {STATUS[k].label}
+                    <Text style={[styles.chipText, { color: detailLead.status === s.key ? s.color : C.textDim }]}>
+                      {s.label}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
               {/* Quick schedule */}
-              <Text style={[styles.label, { marginTop: 14 }]}>Next call schedule</Text>
+              <Text style={[styles.label, { color: C.textDim, marginTop: 14 }]}>Next call schedule</Text>
               <View style={styles.chipRow}>
                 {TIME_TAGS.map((t) => (
-                  <TouchableOpacity
-                    key={t.label}
-                    onPress={() => scheduleNext(detailLead.id, t.days)}
-                    style={styles.chip}
-                  >
-                    <Text style={styles.chipText}>{t.label}</Text>
+                  <TouchableOpacity key={t.label} onPress={() => scheduleNext(detailLead.id, t.days)} style={[styles.chip, { backgroundColor: C.inputBg, borderColor: C.border }]}>
+                    <Text style={[styles.chipText, { color: C.textDim }]}>{t.label}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
-              {/* Outcome tags */}
-              <Text style={[styles.label, { marginTop: 14 }]}>Quick outcome log</Text>
+              {/* Smart Time Selector */}
+              <Text style={[styles.label, { color: C.textDim, marginTop: 14 }]}>Smart Time Selector</Text>
               <View style={styles.chipRow}>
-                {OUTCOME_TAGS.map((t) => (
+                {CALL_TIME_SLOTS.map((s) => (
                   <TouchableOpacity
-                    key={t.label}
-                    onPress={() => applyOutcome(detailLead.id, t)}
-                    style={[
-                      styles.chip,
-                      { borderColor: t.color + "66" },
-                    ]}
+                    key={s.time}
+                    onPress={() => setCallTime(detailLead.id, s.time)}
+                    style={[styles.chip, {
+                      backgroundColor: detailLead.nextCallTime === s.time ? C.indigo + "22" : C.inputBg,
+                      borderColor: detailLead.nextCallTime === s.time ? C.indigo : C.border,
+                    }]}
                   >
-                    <Text style={[styles.chipText, { color: t.color }]}>
-                      {t.label}
+                    <Text style={[styles.chipText, { color: detailLead.nextCallTime === s.time ? C.indigo : C.textDim, fontWeight: detailLead.nextCallTime === s.time ? "700" : "400" }]}>
+                      {s.label}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
+              {/* Expandable Notes History */}
+              <NotesHistory lead={detailLead} onAdd={(note) => {
+                if (!note.trim()) return;
+                persist(leads.map((l) => l.id === detailLead.id ? { ...l, history: [...(l.history || []), { date: Date.now(), note }] } : l));
+              }} C={C} />
+
               {/* Actions */}
               <View style={styles.actionRow}>
-                <TouchableOpacity
-                  onPress={() => Linking.openURL(`tel:${detailLead.phone}`)}
-                  style={[styles.actionBtn, { backgroundColor: C.indigo }]}
-                >
+                <TouchableOpacity onPress={() => Linking.openURL(`tel:${detailLead.phone}`)} style={[styles.actionBtn, { backgroundColor: C.indigo }]}>
                   <Text style={styles.actionText}>Call</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() =>
-                    Linking.openURL(
-                      `https://wa.me/91${detailLead.phone.replace(/\D/g, "")}?text=${encodeURIComponent(whatsappTemplate(detailLead))}`
-                    )
-                  }
+                  onPress={() => Linking.openURL(`https://wa.me/91${detailLead.phone.replace(/\D/g, "")}?text=${encodeURIComponent(whatsappTemplate(detailLead))}`)}
                   style={[styles.actionBtn, { backgroundColor: C.won }]}
                 >
                   <Text style={styles.actionText}>WhatsApp</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() =>
-                    Linking.openURL(
-                      `sms:${detailLead.phone}?body=${encodeURIComponent(smsTemplate(detailLead))}`
-                    )
-                  }
+                  onPress={() => Linking.openURL(`sms:${detailLead.phone}?body=${encodeURIComponent(smsTemplate(detailLead))}`)}
                   style={[styles.actionBtn, { backgroundColor: "#334155" }]}
                 >
                   <Text style={styles.actionText}>SMS</Text>
                 </TouchableOpacity>
               </View>
 
-              <TouchableOpacity
-                onPress={() => openEdit(detailLead)}
-                style={[styles.primaryBtn, { backgroundColor: C.card2, borderColor: C.border, borderWidth: 1 }]}
-              >
+              <TouchableOpacity onPress={() => openEdit(detailLead)} style={[styles.primaryBtn, { backgroundColor: C.card2, borderColor: C.border, borderWidth: 1 }]}>
                 <Text style={[styles.primaryBtnText, { color: C.text }]}>Edit Lead</Text>
               </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => deleteLead(detailLead.id)}
-                style={{ marginTop: 16, alignItems: "center" }}
-              >
+              <TouchableOpacity onPress={() => deleteLead(detailLead.id)} style={{ marginTop: 16, alignItems: "center" }}>
                 <Text style={{ color: C.alert }}>Delete Lead</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setDetailId(null)}
-                style={{ marginVertical: 14, alignItems: "center" }}
-              >
+              <TouchableOpacity onPress={() => setDetailId(null)} style={{ marginVertical: 14, alignItems: "center" }}>
                 <Text style={{ color: C.textMute }}>Band Karo</Text>
               </TouchableOpacity>
             </ScrollView>
@@ -803,57 +832,37 @@ export default function App() {
       )}
 
       {/* ============================== SETTINGS MODAL ============================== */}
-      <Modal
-        visible={showSettings}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowSettings(false)}
-      >
+      <Modal visible={showSettings} transparent animationType="slide" onRequestClose={() => setShowSettings(false)}>
         <View style={styles.modalWrap}>
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, { backgroundColor: C.card }]}>
             <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Settings</Text>
+              <Text style={[styles.sheetTitle, { color: C.text }]}>Settings</Text>
               <TouchableOpacity onPress={() => setShowSettings(false)}>
                 <Text style={{ color: C.textMute, fontSize: 18 }}>✕</Text>
               </TouchableOpacity>
             </View>
-
-            <Text style={styles.label}>Commission %</Text>
+            <Text style={[styles.label, { color: C.textDim }]}>Commission %</Text>
             <TextInput
               value={String(settingsDraft.commissionPct)}
-              onChangeText={(v) =>
-                setSettingsDraft((s) => ({
-                  ...s,
-                  commissionPct: parseFloat(v) || 0,
-                }))
-              }
+              onChangeText={(v) => setSettingsDraft((s) => ({ ...s, commissionPct: parseFloat(v) || 0 }))}
               keyboardType="numeric"
-              style={styles.input}
+              style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]}
               placeholderTextColor={C.textMute}
             />
-
-            <Text style={styles.label}>Gemini API Key (AI Copilot)</Text>
+            <Text style={[styles.label, { color: C.textDim }]}>Gemini API Key (AI Copilot)</Text>
             <TextInput
               value={settingsDraft.geminiApiKey}
-              onChangeText={(v) =>
-                setSettingsDraft((s) => ({ ...s, geminiApiKey: v.trim() }))
-              }
-              style={styles.input}
+              onChangeText={(v) => setSettingsDraft((s) => ({ ...s, geminiApiKey: v.trim() }))}
+              style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]}
               placeholder="AIza..."
               placeholderTextColor={C.textMute}
               autoCapitalize="none"
               autoCorrect={false}
             />
-            <Text style={styles.hint}>
-              Bina key ke demo strategy use hogi. Key set karne par real Gemini
-              1.5 Flash analysis milega — call script, objection counter, aur
-              best call time recommendation ke saath.
+            <Text style={[styles.hint, { color: C.textMute }]}>
+              Bina key ke demo strategy use hogi. Key set karne par real Gemini 1.5 Flash analysis milega.
             </Text>
-
-            <TouchableOpacity
-              onPress={saveSettingsHandler}
-              style={styles.primaryBtn}
-            >
+            <TouchableOpacity onPress={saveSettingsHandler} style={[styles.primaryBtn, { backgroundColor: C.indigo }]}>
               <Text style={styles.primaryBtnText}>Save</Text>
             </TouchableOpacity>
           </View>
@@ -864,26 +873,15 @@ export default function App() {
 }
 
 // ============================== SHIELD LOGO ==============================
-function ShieldLogo({ size = 36 }) {
+function ShieldLogo({ size = 36, color = "#6366F1", borderColor = "#06B6D4" }) {
   const s = size;
   return (
     <View style={{ width: s, height: s, alignItems: "center", justifyContent: "center" }}>
-      <View
-        style={{
-          width: s * 0.82,
-          height: s,
-          backgroundColor: C.indigo,
-          borderRadius: s * 0.12,
-          borderTopLeftRadius: s * 0.12,
-          borderTopRightRadius: s * 0.12,
-          borderBottomLeftRadius: s * 0.35,
-          borderBottomRightRadius: s * 0.35,
-          borderWidth: 1.5,
-          borderColor: C.cyan,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
+      <View style={{
+        width: s * 0.82, height: s, backgroundColor: color,
+        borderRadius: s * 0.12, borderBottomLeftRadius: s * 0.35, borderBottomRightRadius: s * 0.35,
+        borderWidth: 1.5, borderColor, alignItems: "center", justifyContent: "center",
+      }}>
         <Text style={{ color: "#fff", fontSize: s * 0.42, fontWeight: "900" }}>L</Text>
       </View>
     </View>
@@ -891,54 +889,36 @@ function ShieldLogo({ size = 36 }) {
 }
 
 // ============================== METRIC CARD ==============================
-function MetricCard({ label, value, color, small }) {
+function MetricCard({ label, value, color, small, C }) {
   return (
-    <View style={styles.metricBox}>
-      <Text style={[styles.metricVal, { color }]} numberOfLines={1}>
-        {value}
-      </Text>
-      <Text style={styles.metricLabel}>{label}</Text>
+    <View style={[styles.metricBox, { backgroundColor: C.card2, borderColor: C.border }]}>
+      <Text style={[styles.metricVal, { color }]} numberOfLines={1}>{value}</Text>
+      <Text style={[styles.metricLabel, { color: C.textMute }]}>{label}</Text>
     </View>
   );
 }
 
 // ============================== FILTER CHIP ==============================
-function FilterChip({ label, active, onPress }) {
+function FilterChip({ label, active, onPress, C }) {
   return (
-    <TouchableOpacity
-      onPress={onPress}
-      style={[
-        styles.chip,
-        active && { backgroundColor: C.indigo + "22", borderColor: C.indigo },
-      ]}
-    >
-      <Text
-        style={[
-          styles.chipText,
-          active && { color: C.indigo, fontWeight: "700" },
-        ]}
-      >
-        {label}
-      </Text>
+    <TouchableOpacity onPress={onPress} style={[styles.chip, { backgroundColor: active ? C.indigo + "22" : C.card2, borderColor: active ? C.indigo : C.border }]}>
+      <Text style={[styles.chipText, { color: active ? C.indigo : C.textDim, fontWeight: active ? "700" : "400" }]}>{label}</Text>
     </TouchableOpacity>
   );
 }
 
 // ============================== COUNTER BTN ==============================
-function CounterBtn({ label, count, onPress, color }) {
+function CounterBtn({ label, count, onPress, color, C }) {
   return (
-    <TouchableOpacity
-      onPress={onPress}
-      style={[styles.counterBtn, { borderColor: color + "55" }]}
-    >
+    <TouchableOpacity onPress={onPress} style={[styles.counterBtn, { backgroundColor: C.card2, borderColor: color + "55" }]}>
       <Text style={[styles.counterCount, { color }]}>{count}</Text>
-      <Text style={styles.counterLabel}>{label}</Text>
+      <Text style={[styles.counterLabel, { color: C.textDim }]}>{label}</Text>
     </TouchableOpacity>
   );
 }
 
 // ============================== AI COPILOT CARD ==============================
-function AICopilotCard({ lead, apiKey }) {
+function AICopilotCard({ lead, apiKey, C }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [sections, setSections] = useState(null);
@@ -958,115 +938,111 @@ function AICopilotCard({ lead, apiKey }) {
     }
   }, [apiKey, lead]);
 
-  useEffect(() => {
-    fetchCopilot();
-  }, [fetchCopilot]);
+  useEffect(() => { fetchCopilot(); }, [fetchCopilot]);
 
   return (
-    <View style={styles.aiCard}>
+    <View style={[styles.aiCard, { backgroundColor: C.card2, borderColor: C.cyan + "55" }]}>
       <View style={styles.aiHeader}>
-        <View style={styles.aiBadge}>
-          <Text style={styles.aiBadgeText}>AI COPILOT</Text>
+        <View style={[styles.aiBadge, { backgroundColor: C.cyan + "22", borderColor: C.cyan + "66" }]}>
+          <Text style={[styles.aiBadgeText, { color: C.cyan }]}>AI COPILOT</Text>
         </View>
-        <Text style={styles.aiTitle}>Gemini Sales Strategy</Text>
+        <Text style={[styles.aiTitle, { color: C.text }]}>Gemini Sales Strategy</Text>
       </View>
-
       {loading && (
         <View style={styles.aiLoading}>
           <ActivityIndicator color={C.cyan} size="small" />
-          <Text style={styles.aiLoadingText}>Strategy ban raha hai...</Text>
+          <Text style={[styles.aiLoadingText, { color: C.textDim }]}>Strategy ban raha hai...</Text>
         </View>
       )}
-
       {error && (
-        <View style={styles.aiErrorBox}>
-          <Text style={styles.aiErrorText}>{error}</Text>
-          <TouchableOpacity onPress={fetchCopilot} style={styles.aiRetryBtn}>
-            <Text style={styles.aiRetryText}>Retry</Text>
+        <View style={[styles.aiErrorBox, { backgroundColor: C.alert + "15", borderColor: C.alert + "44" }]}>
+          <Text style={[styles.aiErrorText, { color: C.alert }]}>{error}</Text>
+          <TouchableOpacity onPress={fetchCopilot} style={[styles.aiRetryBtn, { backgroundColor: C.alert + "22" }]}>
+            <Text style={[styles.aiRetryText, { color: C.alert }]}>Retry</Text>
           </TouchableOpacity>
         </View>
       )}
-
       {!loading && !error && sections && (
         <View style={{ gap: 10 }}>
-          <CopilotSection
-            icon="🎯"
-            label="Leverage Point"
-            text={sections.leverage || raw}
-          />
-          {sections.hook && (
-            <CopilotSection
-              icon="💬"
-              label="Opening Hook"
-              text={sections.hook}
-            />
-          )}
-          {sections.objection && (
-            <CopilotSection
-              icon="🛡"
-              label="Objection Destroyer"
-              text={sections.objection}
-            />
-          )}
-          {sections.crossSell && (
-            <CopilotSection
-              icon="🔀"
-              label="Cross-sell / Bridge"
-              text={sections.crossSell}
-            />
-          )}
-          {sections.callTime && (
-            <CopilotSection
-              icon="⏰"
-              label="Best Call Time"
-              text={sections.callTime}
-            />
-          )}
+          <CopilotSection icon="🎯" label="Leverage Point" text={sections.leverage || raw} C={C} />
+          {sections.hook && <CopilotSection icon="💬" label="Opening Hook" text={sections.hook} C={C} />}
+          {sections.objection && <CopilotSection icon="🛡" label="Objection Destroyer" text={sections.objection} C={C} />}
+          {sections.crossSell && <CopilotSection icon="🔀" label="Cross-sell / Bridge" text={sections.crossSell} C={C} />}
+          {sections.callTime && <CopilotSection icon="⏰" label="Best Call Time" text={sections.callTime} C={C} />}
         </View>
       )}
-
       {!loading && !error && (
-        <TouchableOpacity onPress={fetchCopilot} style={styles.aiRefreshBtn}>
-          <Text style={styles.aiRefreshText}>↻ Refresh</Text>
+        <TouchableOpacity onPress={fetchCopilot} style={[styles.aiRefreshBtn, { backgroundColor: C.card, borderColor: C.border }]}>
+          <Text style={[styles.aiRefreshText, { color: C.textDim }]}>↻ Refresh</Text>
         </TouchableOpacity>
       )}
     </View>
   );
 }
 
-function CopilotSection({ icon, label, text }) {
+function CopilotSection({ icon, label, text, C }) {
   return (
-    <View style={styles.aiSection}>
-      <Text style={styles.aiSectionLabel}>
-        {icon} {label}
-      </Text>
-      <Text style={styles.aiSectionText}>{text}</Text>
+    <View style={[styles.aiSection, { backgroundColor: C.inputBg, borderColor: C.border }]}>
+      <Text style={[styles.aiSectionLabel, { color: C.cyan }]}>{icon} {label}</Text>
+      <Text style={[styles.aiSectionText, { color: C.text }]}>{text}</Text>
     </View>
   );
 }
 
 // ============================== SMART CALL TIME CARD ==============================
-function SmartCallTimeCard({ lead, onApply }) {
+function SmartCallTimeCard({ lead, onApply, C }) {
   const rec = recommendCallTime(lead);
   return (
-    <View style={styles.callTimeCard}>
+    <View style={[styles.callTimeCard, { backgroundColor: C.card2, borderColor: C.indigo + "55" }]}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <Text style={styles.callTimeIcon}>⏰</Text>
-        <Text style={styles.callTimeTitle}>Smart Call Time</Text>
-        <View style={styles.callTimePill}>
-          <Text style={styles.callTimePillText}>{rec.label}</Text>
+        <Text style={[styles.callTimeTitle, { color: C.indigo }]}>Smart Call Time</Text>
+        <View style={[styles.callTimePill, { backgroundColor: C.indigo + "22", borderColor: C.indigo + "66" }]}>
+          <Text style={[styles.callTimePillText, { color: C.indigo }]}>{rec.label}</Text>
         </View>
       </View>
-      <Text style={styles.callTimeReason}>{rec.reason}</Text>
-      <TouchableOpacity onPress={onApply} style={styles.callTimeBtn}>
+      <Text style={[styles.callTimeReason, { color: C.textDim }]}>{rec.reason}</Text>
+      <TouchableOpacity onPress={onApply} style={[styles.callTimeBtn, { backgroundColor: C.indigo }]}>
         <Text style={styles.callTimeBtnText}>Schedule at {rec.label}</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
+// ============================== CALLBACK MATRIX ==============================
+function CallbackMatrix({ lead, onOutcome, C }) {
+  return (
+    <View style={[styles.callbackBox, { backgroundColor: C.card2, borderColor: C.border }]}>
+      <Text style={[styles.callbackTitle, { color: C.text }]}>📞 Callback Matrix</Text>
+      <Text style={[styles.callbackSub, { color: C.textMute }]}>Quick outcome log with auto next-call slot</Text>
+      <View style={{ gap: 6, marginTop: 10 }}>
+        {CALLBACK_OUTCOMES.map((o) => (
+          <TouchableOpacity
+            key={o.label}
+            onPress={() => onOutcome(o)}
+            style={[styles.callbackBtn, { backgroundColor: C.inputBg, borderColor: o.color + "44" }]}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+              <View style={[styles.callbackDot, { backgroundColor: o.color }]} />
+              <Text style={[styles.callbackBtnText, { color: C.text }]}>{o.label}</Text>
+            </View>
+            {o.nextDays !== undefined && o.nextTime && (
+              <Text style={[styles.callbackNext, { color: o.color }]}>
+                → {o.nextDays === 0 ? "Aaj" : o.nextDays === 1 ? "Kal" : `${o.nextDays} din`} {o.nextTime}
+              </Text>
+            )}
+            {o.setStatus === "lost" && (
+              <Text style={[styles.callbackNext, { color: o.color }]}>→ Lost</Text>
+            )}
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 // ============================== OBJECTION BOX ==============================
-function ObjectionBox({ lead }) {
+function ObjectionBox({ lead, C }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(null);
   const [copied, setCopied] = useState(false);
@@ -1077,46 +1053,29 @@ function ObjectionBox({ lead }) {
       await Clipboard.setStringAsync(OBJECTIONS[active].a);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch (e) {
-      // best-effort
-    }
+    } catch (e) {}
   }
 
   return (
-    <View style={styles.objBox}>
-      <TouchableOpacity
-        onPress={() => setOpen((o) => !o)}
-        style={{ flexDirection: "row", justifyContent: "space-between" }}
-      >
-        <Text style={styles.objTitle}>🛡 Objection Destroyer</Text>
+    <View style={[styles.objBox, { backgroundColor: C.card2, borderColor: C.alert + "44" }]}>
+      <TouchableOpacity onPress={() => setOpen((o) => !o)} style={{ flexDirection: "row", justifyContent: "space-between" }}>
+        <Text style={[styles.objTitle, { color: C.alert }]}>🛡 Objection Destroyer</Text>
         <Text style={{ color: C.textMute }}>{open ? "▲" : "▼"}</Text>
       </TouchableOpacity>
-      {open &&
-        OBJECTIONS.map((o, i) => (
-          <TouchableOpacity
-            key={i}
-            onPress={() => setActive(active === i ? null : i)}
-            style={[styles.objRow, active === i && styles.objRowActive]}
-          >
-            <Text
-              style={{
-                color: active === i ? "#fecaca" : C.textDim,
-                fontSize: 11.5,
-              }}
-            >
-              {o.q}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      {open && OBJECTIONS.map((o, i) => (
+        <TouchableOpacity
+          key={i}
+          onPress={() => setActive(active === i ? null : i)}
+          style={[styles.objRow, { backgroundColor: C.inputBg, borderColor: active === i ? C.alert + "66" : C.border }]}
+        >
+          <Text style={{ color: active === i ? "#fecaca" : C.textDim, fontSize: 11.5 }}>{o.q}</Text>
+        </TouchableOpacity>
+      ))}
       {active !== null && (
-        <View style={styles.objAnswer}>
-          <Text style={{ color: C.text, fontSize: 12.5, lineHeight: 18 }}>
-            {OBJECTIONS[active].a}
-          </Text>
-          <TouchableOpacity onPress={copyObjection} style={styles.objCopyBtn}>
-            <Text style={styles.objCopyText}>
-              {copied ? "✓ Copied" : "Copy"}
-            </Text>
+        <View style={[styles.objAnswer, { backgroundColor: C.inputBg, borderColor: C.alert + "44" }]}>
+          <Text style={{ color: C.text, fontSize: 12.5, lineHeight: 18 }}>{OBJECTIONS[active].a}</Text>
+          <TouchableOpacity onPress={copyObjection} style={[styles.objCopyBtn, { backgroundColor: C.card2, borderColor: C.border }]}>
+            <Text style={[styles.objCopyText, { color: C.cyan }]}>{copied ? "✓ Copied" : "Copy"}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -1124,8 +1083,57 @@ function ObjectionBox({ lead }) {
   );
 }
 
+// ============================== NOTES HISTORY ==============================
+function NotesHistory({ lead, onAdd, C }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+
+  function addNote() {
+    if (!note.trim()) return;
+    onAdd(note);
+    setNote("");
+  }
+
+  return (
+    <View style={[styles.notesBox, { backgroundColor: C.card2, borderColor: C.border }]}>
+      <TouchableOpacity onPress={() => setOpen((o) => !o)} style={{ flexDirection: "row", justifyContent: "space-between" }}>
+        <Text style={[styles.notesTitle, { color: C.text }]}>📝 Notes & History ({(lead.history || []).length})</Text>
+        <Text style={{ color: C.textMute }}>{open ? "▲" : "▼"}</Text>
+      </TouchableOpacity>
+      {open && (
+        <View style={{ marginTop: 10 }}>
+          {(lead.history || []).length === 0 && (
+            <Text style={[styles.notesEmpty, { color: C.textMute }]}>Koi history nahi hai.</Text>
+          )}
+          {(lead.history || []).slice().reverse().map((h, i) => (
+            <View key={i} style={[styles.noteItem, { borderColor: C.border }]}>
+              <Text style={[styles.noteDate, { color: C.cyan }]}>
+                {new Date(h.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}{"  "}
+                {new Date(h.date).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+              </Text>
+              <Text style={[styles.noteText, { color: C.text }]}>{h.note}</Text>
+            </View>
+          ))}
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+            <TextInput
+              value={note}
+              onChangeText={setNote}
+              placeholder="Naya note add karo..."
+              placeholderTextColor={C.textMute}
+              style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text, flex: 1, minHeight: 40 }]}
+            />
+            <TouchableOpacity onPress={addNote} style={[styles.noteAddBtn, { backgroundColor: C.indigo }]}>
+              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>Add</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
 // ============================== LEAD FORM ==============================
-function LeadForm({ form, setForm, onSave, onCancel }) {
+function LeadForm({ form, setForm, onSave, onCancel, C }) {
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
 
   const isBL = /Business Loan/i.test(form.product);
@@ -1134,219 +1142,111 @@ function LeadForm({ form, setForm, onSave, onCancel }) {
   const showBusinessFields = isBL || isMSME;
   const showSalaryFields = isPL;
   const showPropertyFields = !showBusinessFields && !showSalaryFields;
-
   const isSalaried = /salaried/i.test(form.employment || "");
   const isSelfEmployed = /self-employed/i.test(form.employment || "");
-
-  const checklist = getDocumentChecklist(form);
+  const isOtherBank = form.bank === "Other";
 
   return (
     <View>
-      <Text style={styles.label}>Naam *</Text>
-      <TextInput
-        value={form.name}
-        onChangeText={(v) => set("name", v)}
-        style={styles.input}
-        placeholderTextColor={C.textMute}
-      />
+      <Text style={[styles.label, { color: C.textDim }]}>Naam *</Text>
+      <TextInput value={form.name} onChangeText={(v) => set("name", v)} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} placeholderTextColor={C.textMute} />
 
-      <Text style={styles.label}>Phone *</Text>
-      <TextInput
-        value={form.phone}
-        onChangeText={(v) => set("phone", v)}
-        keyboardType="phone-pad"
-        style={styles.input}
-        placeholderTextColor={C.textMute}
-      />
+      <Text style={[styles.label, { color: C.textDim }]}>Phone *</Text>
+      <TextInput value={form.phone} onChangeText={(v) => set("phone", v)} keyboardType="phone-pad" style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} placeholderTextColor={C.textMute} />
 
-      <Text style={styles.label}>Alt Phone</Text>
-      <TextInput
-        value={form.altPhone}
-        onChangeText={(v) => set("altPhone", v)}
-        keyboardType="phone-pad"
-        style={styles.input}
-        placeholderTextColor={C.textMute}
-      />
+      <Text style={[styles.label, { color: C.textDim }]}>Alt Phone</Text>
+      <TextInput value={form.altPhone} onChangeText={(v) => set("altPhone", v)} keyboardType="phone-pad" style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} placeholderTextColor={C.textMute} />
 
-      <Text style={styles.label}>Product</Text>
+      <Text style={[styles.label, { color: C.textDim }]}>Product</Text>
       <View style={styles.chipRow}>
         {PRODUCTS.map((p) => (
-          <TouchableOpacity
-            key={p.v}
-            onPress={() => set("product", p.v)}
-            style={[styles.chip, form.product === p.v && styles.chipActive]}
-          >
-            <Text
-              style={[
-                styles.chipText,
-                form.product === p.v && styles.chipTextActive,
-              ]}
-            >
-              {p.c}
-            </Text>
+          <TouchableOpacity key={p.v} onPress={() => set("product", p.v)} style={[styles.chip, { backgroundColor: form.product === p.v ? C.indigo + "22" : C.inputBg, borderColor: form.product === p.v ? C.indigo : C.border }]}>
+            <Text style={[styles.chipText, { color: form.product === p.v ? C.indigo : C.textDim, fontWeight: form.product === p.v ? "700" : "400" }]}>{p.c}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      <Text style={styles.label}>Bank</Text>
+      <Text style={[styles.label, { color: C.textDim }]}>Bank</Text>
       <View style={styles.chipRow}>
         {BANKS.map((b) => (
-          <TouchableOpacity
-            key={b}
-            onPress={() => set("bank", b)}
-            style={[styles.chip, form.bank === b && styles.chipActive]}
-          >
-            <Text
-              style={[
-                styles.chipText,
-                form.bank === b && styles.chipTextActive,
-              ]}
-            >
-              {b}
-            </Text>
+          <TouchableOpacity key={b} onPress={() => set("bank", b)} style={[styles.chip, { backgroundColor: form.bank === b ? C.indigo + "22" : C.inputBg, borderColor: form.bank === b ? C.indigo : C.border }]}>
+            <Text style={[styles.chipText, { color: form.bank === b ? C.indigo : C.textDim, fontWeight: form.bank === b ? "700" : "400" }]}>{b}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      <Text style={styles.label}>Requirement (amount)</Text>
-      <TextInput
-        value={form.loanAmount}
-        onChangeText={(v) => set("loanAmount", v)}
-        placeholder="e.g. 1 Cr"
-        placeholderTextColor={C.textMute}
-        style={styles.input}
-      />
+      {/* Custom Bank Input */}
+      {isOtherBank && (
+        <>
+          <Text style={[styles.label, { color: C.textDim }]}>Specify Bank Name</Text>
+          <TextInput value={form.customBank} onChangeText={(v) => set("customBank", v)} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} placeholderTextColor={C.textMute} placeholder="e.g. South Indian Bank" />
+        </>
+      )}
+
+      <Text style={[styles.label, { color: C.textDim }]}>Requirement (amount)</Text>
+      <TextInput value={form.loanAmount} onChangeText={(v) => set("loanAmount", v)} placeholder="e.g. 1 Cr" placeholderTextColor={C.textMute} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
+
+      {/* Loan Details Split */}
+      <Text style={[styles.label, { color: C.textDim }]}>Existing Loan Amount</Text>
+      <TextInput value={form.existingLoanAmount} onChangeText={(v) => set("existingLoanAmount", v)} placeholder="e.g. 40 L" placeholderTextColor={C.textMute} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
+
+      <Text style={[styles.label, { color: C.textDim }]}>Top-Up Requested (₹)</Text>
+      <TextInput value={form.topUpRequested} onChangeText={(v) => set("topUpRequested", v)} placeholder="e.g. 10 L" placeholderTextColor={C.textMute} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
 
       {/* Universal financial fields */}
-      <Text style={styles.label}>Current Bank & ROI (%)</Text>
-      <TextInput
-        value={form.currentROI}
-        onChangeText={(v) => set("currentROI", v)}
-        placeholder="e.g. 9.5"
-        placeholderTextColor={C.textMute}
-        keyboardType="numeric"
-        style={styles.input}
-      />
+      <Text style={[styles.label, { color: C.textDim }]}>Current Bank & ROI (%)</Text>
+      <TextInput value={form.currentROI} onChangeText={(v) => set("currentROI", v)} placeholder="e.g. 9.5" placeholderTextColor={C.textMute} keyboardType="numeric" style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
 
-      <Text style={styles.label}>CIBIL Score</Text>
-      <TextInput
-        value={form.cibilScore}
-        onChangeText={(v) => set("cibilScore", v)}
-        placeholder="e.g. 750"
-        placeholderTextColor={C.textMute}
-        keyboardType="numeric"
-        style={styles.input}
-      />
+      <Text style={[styles.label, { color: C.textDim }]}>CIBIL Score</Text>
+      <TextInput value={form.cibilScore} onChangeText={(v) => set("cibilScore", v)} placeholder="e.g. 750" placeholderTextColor={C.textMute} keyboardType="numeric" style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
 
       {/* Property fields */}
       {showPropertyFields && (
         <>
-          <Text style={styles.label}>Property Type</Text>
-          <SelectField
-            value={form.propertyType}
-            options={PROPERTY_TYPES}
-            onChange={(v) => set("propertyType", v)}
-          />
-          <Text style={styles.label}>Property Location</Text>
-          <TextInput
-            value={form.propertyLocation}
-            onChangeText={(v) => set("propertyLocation", v)}
-            style={styles.input}
-            placeholderTextColor={C.textMute}
-          />
-          <Text style={styles.label}>Market Value</Text>
-          <TextInput
-            value={form.marketValue}
-            onChangeText={(v) => set("marketValue", v)}
-            placeholder="e.g. 1.5 Cr"
-            placeholderTextColor={C.textMute}
-            style={styles.input}
-          />
+          <Text style={[styles.label, { color: C.textDim }]}>Property Type</Text>
+          <SelectField value={form.propertyType} options={PROPERTY_TYPES} onChange={(v) => set("propertyType", v)} C={C} />
+          <Text style={[styles.label, { color: C.textDim }]}>Property Location</Text>
+          <TextInput value={form.propertyLocation} onChangeText={(v) => set("propertyLocation", v)} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} placeholderTextColor={C.textMute} />
+          <Text style={[styles.label, { color: C.textDim }]}>Market Value</Text>
+          <TextInput value={form.marketValue} onChangeText={(v) => set("marketValue", v)} placeholder="e.g. 1.5 Cr" placeholderTextColor={C.textMute} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
         </>
       )}
 
       {/* Business fields */}
       {showBusinessFields && (
         <>
-          <Text style={styles.label}>Annual Turnover (T.O.)</Text>
-          <SelectField
-            value={form.turnover}
-            options={TURNOVER_BANDS}
-            onChange={(v) => set("turnover", v)}
-          />
-          <Text style={styles.label}>Banking Type</Text>
-          <SelectField
-            value={form.bankingType}
-            options={BANKING_TYPES}
-            onChange={(v) => set("bankingType", v)}
-          />
-          <Text style={styles.label}>Business Name</Text>
-          <TextInput
-            value={form.businessName}
-            onChangeText={(v) => set("businessName", v)}
-            style={styles.input}
-            placeholderTextColor={C.textMute}
-          />
-          <Text style={styles.label}>ITR</Text>
-          <TextInput
-            value={form.itr}
-            onChangeText={(v) => set("itr", v)}
-            placeholder="e.g. 12L"
-            placeholderTextColor={C.textMute}
-            style={styles.input}
-          />
+          <Text style={[styles.label, { color: C.textDim }]}>Annual Turnover (₹)</Text>
+          <TextInput value={form.turnover} onChangeText={(v) => set("turnover", v)} placeholder="e.g. 2 Cr" placeholderTextColor={C.textMute} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
+          <Text style={[styles.label, { color: C.textDim }]}>Banking Type</Text>
+          <SelectField value={form.bankingType} options={BANKING_TYPES} onChange={(v) => set("bankingType", v)} C={C} />
+          <Text style={[styles.label, { color: C.textDim }]}>Business Name</Text>
+          <TextInput value={form.businessName} onChangeText={(v) => set("businessName", v)} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} placeholderTextColor={C.textMute} />
         </>
       )}
 
       {/* Salary fields */}
       {showSalaryFields && (
         <>
-          <Text style={styles.label}>Monthly Net Salary (₹)</Text>
-          <TextInput
-            value={form.monthlySalary}
-            onChangeText={(v) => set("monthlySalary", v)}
-            placeholder="e.g. 45000"
-            placeholderTextColor={C.textMute}
-            keyboardType="numeric"
-            style={styles.input}
-          />
-          <Text style={styles.label}>Company Category</Text>
-          <SelectField
-            value={form.companyCategory}
-            options={COMPANY_CATEGORIES}
-            onChange={(v) => set("companyCategory", v)}
-          />
+          <Text style={[styles.label, { color: C.textDim }]}>Monthly Net Salary (₹)</Text>
+          <TextInput value={form.monthlySalary} onChangeText={(v) => set("monthlySalary", v)} placeholder="e.g. 45000" placeholderTextColor={C.textMute} keyboardType="numeric" style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
+          <Text style={[styles.label, { color: C.textDim }]}>Company Category</Text>
+          <SelectField value={form.companyCategory} options={COMPANY_CATEGORIES} onChange={(v) => set("companyCategory", v)} C={C} />
         </>
       )}
 
       {/* Universal: Employment */}
-      <Text style={styles.label}>Employment Type</Text>
-      <SelectField
-        value={form.employment}
-        options={EMPLOYMENT}
-        onChange={(v) => set("employment", v)}
-      />
+      <Text style={[styles.label, { color: C.textDim }]}>Employment Type</Text>
+      <SelectField value={form.employment} options={EMPLOYMENT} onChange={(v) => set("employment", v)} C={C} />
 
       {/* Salaried dynamic fields */}
       {isSalaried && (
         <>
-          <Text style={styles.label}>Additional Income Source</Text>
-          <SelectField
-            value={form.additionalIncome}
-            options={ADDITIONAL_INCOME_SOURCES}
-            onChange={(v) => set("additionalIncome", v)}
-          />
+          <Text style={[styles.label, { color: C.textDim }]}>Additional Income Source</Text>
+          <SelectField value={form.additionalIncome} options={ADDITIONAL_INCOME_SOURCES} onChange={(v) => set("additionalIncome", v)} C={C} />
           {form.additionalIncome && form.additionalIncome !== "None" && (
             <>
-              <Text style={styles.label}>Additional Monthly Income (₹)</Text>
-              <TextInput
-                value={form.additionalIncomeAmt}
-                onChangeText={(v) => set("additionalIncomeAmt", v)}
-                placeholder="e.g. 15000"
-                placeholderTextColor={C.textMute}
-                keyboardType="numeric"
-                style={styles.input}
-              />
+              <Text style={[styles.label, { color: C.textDim }]}>Additional Monthly Income (₹)</Text>
+              <TextInput value={form.additionalIncomeAmt} onChangeText={(v) => set("additionalIncomeAmt", v)} placeholder="e.g. 15000" placeholderTextColor={C.textMute} keyboardType="numeric" style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
             </>
           )}
         </>
@@ -1355,143 +1255,56 @@ function LeadForm({ form, setForm, onSave, onCancel }) {
       {/* Self-Employed dynamic fields */}
       {isSelfEmployed && (
         <>
-          <Text style={styles.label}>Entity Constitution</Text>
-          <SelectField
-            value={form.entityConstitution}
-            options={ENTITY_CONSTITUTION}
-            onChange={(v) => set("entityConstitution", v)}
-          />
-          <Text style={styles.label}>Nature of Business</Text>
-          <SelectField
-            value={form.natureOfBusiness}
-            options={NATURE_OF_BUSINESS}
-            onChange={(v) => set("natureOfBusiness", v)}
-          />
-          <Text style={styles.label}>Annual Turnover / Gross Profit (₹)</Text>
-          <TextInput
-            value={form.turnover}
-            onChangeText={(v) => set("turnover", v)}
-            placeholder="e.g. 2 Cr"
-            placeholderTextColor={C.textMute}
-            style={styles.input}
-          />
-          <Text style={styles.label}>Additional Income Source</Text>
-          <SelectField
-            value={form.additionalIncome}
-            options={ADDITIONAL_INCOME_SOURCES}
-            onChange={(v) => set("additionalIncome", v)}
-          />
+          <Text style={[styles.label, { color: C.textDim }]}>Entity Type</Text>
+          <SelectField value={form.entityConstitution} options={ENTITY_CONSTITUTION} onChange={(v) => set("entityConstitution", v)} C={C} />
+          <Text style={[styles.label, { color: C.textDim }]}>Nature of Business</Text>
+          <SelectField value={form.natureOfBusiness} options={NATURE_OF_BUSINESS} onChange={(v) => set("natureOfBusiness", v)} C={C} />
+          <Text style={[styles.label, { color: C.textDim }]}>Latest 2 Years ITR Amount (₹)</Text>
+          <TextInput value={form.itr} onChangeText={(v) => set("itr", v)} placeholder="e.g. 12L" placeholderTextColor={C.textMute} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
+          <Text style={[styles.label, { color: C.textDim }]}>Annual Turnover (₹)</Text>
+          <TextInput value={form.turnover} onChangeText={(v) => set("turnover", v)} placeholder="e.g. 2 Cr" placeholderTextColor={C.textMute} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
+          <Text style={[styles.label, { color: C.textDim }]}>Additional Income Source</Text>
+          <SelectField value={form.additionalIncome} options={ADDITIONAL_INCOME_SOURCES} onChange={(v) => set("additionalIncome", v)} C={C} />
         </>
       )}
 
       {/* Universal: Rental Income */}
-      <Text style={styles.label}>Rental Income Type</Text>
-      <SelectField
-        value={form.rentalIncome}
-        options={RENTAL_INCOME_TYPES}
-        onChange={(v) => set("rentalIncome", v)}
-      />
+      <Text style={[styles.label, { color: C.textDim }]}>Rental Income Type</Text>
+      <SelectField value={form.rentalIncome} options={RENTAL_INCOME_TYPES} onChange={(v) => set("rentalIncome", v)} C={C} />
 
-      <Text style={styles.label}>Co-Applicant</Text>
-      <TextInput
-        value={form.coApplicant}
-        onChangeText={(v) => set("coApplicant", v)}
-        style={styles.input}
-        placeholderTextColor={C.textMute}
-      />
+      <Text style={[styles.label, { color: C.textDim }]}>Co-Applicant</Text>
+      <TextInput value={form.coApplicant} onChangeText={(v) => set("coApplicant", v)} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} placeholderTextColor={C.textMute} />
 
-      <Text style={styles.label}>Next Call Date</Text>
-      <TextInput
-        value={form.nextCallDate}
-        onChangeText={(v) => set("nextCallDate", v)}
-        placeholder="YYYY-MM-DD"
-        placeholderTextColor={C.textMute}
-        style={styles.input}
-      />
-      <Text style={styles.label}>Next Call Time</Text>
-      <TextInput
-        value={form.nextCallTime}
-        onChangeText={(v) => set("nextCallTime", v)}
-        placeholder="HH:MM"
-        placeholderTextColor={C.textMute}
-        style={styles.input}
-      />
+      <Text style={[styles.label, { color: C.textDim }]}>Next Call Date</Text>
+      <TextInput value={form.nextCallDate} onChangeText={(v) => set("nextCallDate", v)} placeholder="YYYY-MM-DD" placeholderTextColor={C.textMute} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
+      <Text style={[styles.label, { color: C.textDim }]}>Next Call Time</Text>
+      <TextInput value={form.nextCallTime} onChangeText={(v) => set("nextCallTime", v)} placeholder="HH:MM" placeholderTextColor={C.textMute} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
 
-      <Text style={styles.label}>Status</Text>
+      <Text style={[styles.label, { color: C.textDim }]}>Status</Text>
       <View style={styles.chipRow}>
-        {STATUS_ORDER.map((k) => (
-          <TouchableOpacity
-            key={k}
-            onPress={() => set("status", k)}
-            style={[styles.chip, form.status === k && styles.chipActive]}
-          >
-            <Text
-              style={[
-                styles.chipText,
-                form.status === k && styles.chipTextActive,
-              ]}
-            >
-              {STATUS[k].label}
-            </Text>
+        {PIPELINE_STAGES.map((s) => (
+          <TouchableOpacity key={s.key} onPress={() => set("status", s.key)} style={[styles.chip, { backgroundColor: form.status === s.key ? s.color + "22" : C.inputBg, borderColor: form.status === s.key ? s.color : C.border }]}>
+            <Text style={[styles.chipText, { color: form.status === s.key ? s.color : C.textDim, fontWeight: form.status === s.key ? "700" : "400" }]}>{s.label}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      <Text style={styles.label}>Interest</Text>
+      <Text style={[styles.label, { color: C.textDim }]}>Interest</Text>
       <View style={styles.chipRow}>
         {Object.keys(INTEREST).map((k) => (
-          <TouchableOpacity
-            key={k}
-            onPress={() => set("interest", k)}
-            style={[styles.chip, form.interest === k && styles.chipActive]}
-          >
-            <Text
-              style={[
-                styles.chipText,
-                form.interest === k && styles.chipTextActive,
-              ]}
-            >
-              {INTEREST[k].label}
-            </Text>
+          <TouchableOpacity key={k} onPress={() => set("interest", k)} style={[styles.chip, { backgroundColor: form.interest === k ? C.indigo + "22" : C.inputBg, borderColor: form.interest === k ? C.indigo : C.border }]}>
+            <Text style={[styles.chipText, { color: form.interest === k ? C.indigo : C.textDim, fontWeight: form.interest === k ? "700" : "400" }]}>{INTEREST[k].label}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* Document Checklist */}
-      {checklist.length > 4 && (
-        <View style={styles.checklistBox}>
-          <Text style={styles.checklistTitle}>📋 Document Checklist</Text>
-          <Text style={styles.checklistSub}>
-            Based on {form.employment || "employment type"}
-            {form.entityConstitution ? ` · ${form.entityConstitution}` : ""}
-          </Text>
-          {checklist.map((doc, i) => (
-            <View key={i} style={styles.checklistItem}>
-              <Text style={styles.checklistBullet}>☐</Text>
-              <Text style={styles.checklistText}>{doc}</Text>
-            </View>
-          ))}
-        </View>
-      )}
+      <Text style={[styles.label, { color: C.textDim }]}>Notes</Text>
+      <TextInput value={form.notes} onChangeText={(v) => set("notes", v)} multiline style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text, minHeight: 70, textAlignVertical: "top" }]} placeholderTextColor={C.textMute} />
 
-      <Text style={styles.label}>Notes</Text>
-      <TextInput
-        value={form.notes}
-        onChangeText={(v) => set("notes", v)}
-        multiline
-        style={[styles.input, { minHeight: 70, textAlignVertical: "top" }]}
-        placeholderTextColor={C.textMute}
-      />
-
-      <TouchableOpacity onPress={onSave} style={styles.primaryBtn}>
-        <Text style={styles.primaryBtnText}>
-          {form.id ? "Update Karo" : "Add Karo"}
-        </Text>
+      <TouchableOpacity onPress={onSave} style={[styles.primaryBtn, { backgroundColor: C.indigo }]}>
+        <Text style={styles.primaryBtnText}>{form.id ? "Update Karo" : "Add Karo"}</Text>
       </TouchableOpacity>
-      <TouchableOpacity
-        onPress={onCancel}
-        style={{ marginVertical: 14, alignItems: "center" }}
-      >
+      <TouchableOpacity onPress={onCancel} style={{ marginVertical: 14, alignItems: "center" }}>
         <Text style={{ color: C.textMute }}>Cancel</Text>
       </TouchableOpacity>
     </View>
@@ -1499,60 +1312,27 @@ function LeadForm({ form, setForm, onSave, onCancel }) {
 }
 
 // ============================== SELECT FIELD ==============================
-function SelectField({ value, options, onChange }) {
+function SelectField({ value, options, onChange, C }) {
   const [open, setOpen] = useState(false);
   return (
     <View style={{ marginBottom: 10 }}>
-      <TouchableOpacity
-        onPress={() => setOpen((o) => !o)}
-        style={styles.selectBox}
-      >
-        <Text
-          style={[styles.selectText, !value && { color: C.textMute }]}
-          numberOfLines={1}
-        >
-          {value || "Select..."}
-        </Text>
+      <TouchableOpacity onPress={() => setOpen((o) => !o)} style={[styles.selectBox, { backgroundColor: C.inputBg, borderColor: C.border }]}>
+        <Text style={[styles.selectText, { color: value ? C.text : C.textMute }]} numberOfLines={1}>{value || "Select..."}</Text>
         <Text style={{ color: C.textMute }}>{open ? "▲" : "▼"}</Text>
       </TouchableOpacity>
       {open && (
-        <View style={styles.selectDropdown}>
-          <ScrollView
-            nestedScrollEnabled
-            style={{ maxHeight: 180 }}
-            contentContainerStyle={{ gap: 2 }}
-          >
-            <TouchableOpacity
-              onPress={() => {
-                onChange("");
-                setOpen(false);
-              }}
-              style={styles.selectOption}
-            >
-              <Text style={[styles.selectOptionText, { color: C.textMute }]}>
-                — Clear —
-              </Text>
+        <View style={[styles.selectDropdown, { backgroundColor: C.inputBg, borderColor: C.border }]}>
+          <ScrollView nestedScrollEnabled style={{ maxHeight: 180 }} contentContainerStyle={{ gap: 2 }}>
+            <TouchableOpacity onPress={() => { onChange(""); setOpen(false); }} style={styles.selectOption}>
+              <Text style={[styles.selectOptionText, { color: C.textMute }]}>— Clear —</Text>
             </TouchableOpacity>
             {options.map((opt) => (
               <TouchableOpacity
                 key={opt}
-                onPress={() => {
-                  onChange(opt);
-                  setOpen(false);
-                }}
-                style={[
-                  styles.selectOption,
-                  value === opt && { backgroundColor: C.indigo + "22" },
-                ]}
+                onPress={() => { onChange(opt); setOpen(false); }}
+                style={[styles.selectOption, value === opt && { backgroundColor: C.indigo + "22" }]}
               >
-                <Text
-                  style={[
-                    styles.selectOptionText,
-                    value === opt && { color: C.indigo, fontWeight: "700" },
-                  ]}
-                >
-                  {opt}
-                </Text>
+                <Text style={[styles.selectOptionText, { color: value === opt ? C.indigo : C.text, fontWeight: value === opt ? "700" : "400" }]}>{opt}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -1564,117 +1344,132 @@ function SelectField({ value, options, onChange }) {
 
 // ============================== STYLES ==============================
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.bg },
-  header: {
-    backgroundColor: C.card,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
-    padding: 16,
-  },
+  container: { flex: 1 },
+  header: { borderBottomWidth: 1, padding: 16 },
   headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  logoBox: { width: 42, height: 42, borderRadius: 12, backgroundColor: C.indigo + "22", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: C.indigo + "66" },
-  headerLabel: { color: C.cyan, fontSize: 10, fontWeight: "700", letterSpacing: 2 },
-  headerTitle: { color: C.text, fontSize: 20, fontWeight: "800", marginTop: 2 },
-  settingsBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.card2, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: C.border },
-  settingsBtnText: { color: C.textDim, fontSize: 18 },
-  earnBox: { marginTop: 14, backgroundColor: C.card2, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.won + "44" },
-  earnLabel: { color: C.won, fontSize: 10, fontWeight: "700", letterSpacing: 1 },
-  earnValue: { color: C.won, fontSize: 24, fontWeight: "800", marginTop: 2 },
-  earnSub: { color: C.textMute, fontSize: 10, marginTop: 2 },
+  logoBox: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  headerLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 2 },
+  headerTitle: { fontSize: 20, fontWeight: "800", marginTop: 2 },
+  themeBtn: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  settingsBtn: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  settingsBtnText: { fontSize: 18 },
+  searchBar: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginTop: 14 },
+  searchInput: { flex: 1, fontSize: 13 },
+  filterPill: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 1 },
+  filterPillText: { fontSize: 11, fontWeight: "600" },
+  earnBox: { marginTop: 14, borderRadius: 14, padding: 14, borderWidth: 1 },
+  earnLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 1 },
+  earnValue: { fontSize: 24, fontWeight: "800", marginTop: 2 },
+  earnSub: { fontSize: 10, marginTop: 2 },
   metricGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
-  metricBox: { width: (SCREEN_W - 32 - 24) / 4, minWidth: 80, backgroundColor: C.card2, borderRadius: 10, padding: 8, alignItems: "center", borderWidth: 1, borderColor: C.border },
+  metricBox: { width: (SCREEN_W - 32 - 24) / 4, minWidth: 80, borderRadius: 10, padding: 8, alignItems: "center", borderWidth: 1 },
   metricVal: { fontSize: 15, fontWeight: "800" },
-  metricLabel: { color: C.textMute, fontSize: 8, marginTop: 2, textAlign: "center" },
+  metricLabel: { fontSize: 8, marginTop: 2, textAlign: "center" },
   tabRow: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 14, gap: 8 },
   tabBtn: { flex: 1, paddingVertical: 9, borderRadius: 8, alignItems: "center", borderWidth: 1, borderColor: "transparent" },
-  tabBtnActive: { backgroundColor: C.indigo + "22", borderColor: C.indigo },
-  tabText: { color: C.textMute, fontWeight: "700", fontSize: 12 },
-  tabTextActive: { color: C.indigo },
+  tabText: { fontWeight: "700", fontSize: 12 },
   colHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
   dot: { width: 7, height: 7, borderRadius: 4 },
-  colTitle: { color: C.text, fontSize: 12, fontWeight: "700" },
-  colCount: { color: C.textMute, fontSize: 10, marginLeft: "auto" },
-  emptyCol: { padding: 12, borderWidth: 1, borderColor: C.border, borderStyle: "dashed", borderRadius: 8, alignItems: "center" },
-  emptyColText: { color: C.textMute, fontSize: 10 },
-  card: { backgroundColor: C.card, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: C.border, marginBottom: 8 },
-  cardName: { color: C.text, fontSize: 13, fontWeight: "700" },
-  cardSub: { color: C.textMute, fontSize: 10.5, marginTop: 2 },
+  colTitle: { fontSize: 12, fontWeight: "700" },
+  colCount: { fontSize: 10, marginLeft: "auto" },
+  emptyCol: { padding: 12, borderWidth: 1, borderStyle: "dashed", borderRadius: 8, alignItems: "center" },
+  emptyColText: { fontSize: 10 },
+  card: { borderRadius: 10, padding: 10, borderWidth: 1, marginBottom: 8 },
+  cardShadow: (C) => Platform.select({
+    ios: { shadowColor: C.shadow, shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
+    android: { elevation: 3 },
+    default: {},
+  }),
+  cardName: { fontSize: 13, fontWeight: "700" },
+  cardSub: { fontSize: 10.5, marginTop: 2 },
   scorePill: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, borderWidth: 1 },
-  listRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.border, marginBottom: 8 },
-  avatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: C.card2, alignItems: "center", justifyContent: "center" },
-  avatarText: { color: C.cyan, fontWeight: "700", fontSize: 12 },
+  radarBadge: { paddingHorizontal: 5, paddingVertical: 2, borderRadius: 5, borderWidth: 1 },
+  listRow: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, padding: 12, borderWidth: 1, marginBottom: 8 },
+  avatar: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  avatarText: { fontWeight: "700", fontSize: 12 },
   badge: { fontSize: 10, fontWeight: "700", marginTop: 2 },
-  emptyText: { color: C.textMute, textAlign: "center", marginTop: 40 },
-  quickBtn: { position: "absolute", bottom: 24, left: 20, backgroundColor: C.card, borderWidth: 1, borderColor: C.indigo, borderRadius: 24, paddingHorizontal: 16, paddingVertical: 12 },
-  quickBtnText: { color: C.indigo, fontWeight: "700", fontSize: 12.5 },
-  fab: { position: "absolute", bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: C.indigo, alignItems: "center", justifyContent: "center", shadowColor: C.indigo, shadowOpacity: 0.4, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
+  emptyText: { textAlign: "center", marginTop: 40 },
+  radarTitle: { fontSize: 16, fontWeight: "800" },
+  radarSub: { fontSize: 11, marginTop: 2, marginBottom: 12 },
+  radarRow: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, padding: 12, borderWidth: 1, marginBottom: 8 },
+  radarRank: { width: 30, alignItems: "center" },
+  radarRankText: { fontSize: 14, fontWeight: "800" },
+  quickBtn: { position: "absolute", bottom: 24, left: 20, borderWidth: 1, borderRadius: 24, paddingHorizontal: 16, paddingVertical: 12 },
+  quickBtnText: { fontWeight: "700", fontSize: 12.5 },
+  fab: { position: "absolute", bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },
   modalWrap: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.7)" },
-  sheet: { backgroundColor: C.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, paddingBottom: 30 },
-  sheetTall: { backgroundColor: C.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, maxHeight: "90%" },
+  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, paddingBottom: 30 },
+  sheetTall: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, maxHeight: "90%" },
   sheetHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
-  sheetTitle: { color: C.text, fontSize: 16, fontWeight: "700" },
-  label: { color: C.textDim, fontSize: 11, fontWeight: "600", marginBottom: 4, marginTop: 6 },
-  input: { backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 8, padding: 10, color: C.text, marginBottom: 10 },
+  sheetTitle: { fontSize: 16, fontWeight: "700" },
+  label: { fontSize: 11, fontWeight: "600", marginBottom: 4, marginTop: 6 },
+  input: { borderWidth: 1, borderRadius: 8, padding: 10, marginBottom: 10 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 },
-  chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg },
-  chipActive: { backgroundColor: C.indigo + "22", borderColor: C.indigo },
-  chipText: { color: C.textDim, fontSize: 11 },
-  chipTextActive: { color: C.indigo, fontWeight: "700" },
-  primaryBtn: { backgroundColor: C.indigo, borderRadius: 10, paddingVertical: 13, alignItems: "center", marginTop: 8 },
+  chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
+  chipText: { fontSize: 11 },
+  primaryBtn: { borderRadius: 10, paddingVertical: 13, alignItems: "center", marginTop: 8 },
   primaryBtnText: { color: "#fff", fontWeight: "700" },
   actionRow: { flexDirection: "row", gap: 8, marginTop: 14 },
   actionBtn: { flex: 1, borderRadius: 8, paddingVertical: 11, alignItems: "center" },
   actionText: { color: "#fff", fontWeight: "700", fontSize: 12 },
   counterRow: { flexDirection: "row", gap: 10, marginTop: 14 },
-  counterBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: C.card2, borderRadius: 10, paddingVertical: 12, borderWidth: 1 },
+  counterBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 10, paddingVertical: 12, borderWidth: 1 },
   counterCount: { fontSize: 18, fontWeight: "800" },
-  counterLabel: { color: C.textDim, fontSize: 11, fontWeight: "600" },
-  selectBox: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 8, padding: 10, marginBottom: 6 },
-  selectText: { color: C.text, fontSize: 12, flex: 1 },
-  selectDropdown: { backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 8, marginTop: -4, marginBottom: 8, overflow: "hidden" },
+  counterLabel: { fontSize: 11, fontWeight: "600" },
+  selectBox: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderWidth: 1, borderRadius: 8, padding: 10, marginBottom: 6 },
+  selectText: { fontSize: 12, flex: 1 },
+  selectDropdown: { borderWidth: 1, borderRadius: 8, marginTop: -4, marginBottom: 8, overflow: "hidden" },
   selectOption: { paddingVertical: 9, paddingHorizontal: 10, borderRadius: 6 },
-  selectOptionText: { color: C.text, fontSize: 12 },
-  hint: { color: C.textMute, fontSize: 10, marginTop: 4, marginBottom: 10, lineHeight: 15 },
+  selectOptionText: { fontSize: 12 },
+  hint: { fontSize: 10, marginTop: 4, marginBottom: 10, lineHeight: 15 },
   // AI Copilot
-  aiCard: { backgroundColor: C.card2, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.cyan + "55", marginTop: 12 },
+  aiCard: { borderRadius: 14, padding: 14, borderWidth: 1, marginTop: 12 },
   aiHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
-  aiBadge: { backgroundColor: C.cyan + "22", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: C.cyan + "66" },
-  aiBadgeText: { color: C.cyan, fontSize: 9, fontWeight: "800", letterSpacing: 1 },
-  aiTitle: { color: C.text, fontSize: 13, fontWeight: "700" },
+  aiBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
+  aiBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 1 },
+  aiTitle: { fontSize: 13, fontWeight: "700" },
   aiLoading: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10 },
-  aiLoadingText: { color: C.textDim, fontSize: 12 },
-  aiErrorBox: { padding: 10, backgroundColor: C.alert + "15", borderRadius: 8, borderWidth: 1, borderColor: C.alert + "44" },
-  aiErrorText: { color: C.alert, fontSize: 11, lineHeight: 16 },
-  aiRetryBtn: { marginTop: 8, alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: C.alert + "22" },
-  aiRetryText: { color: C.alert, fontSize: 11, fontWeight: "700" },
-  aiSection: { backgroundColor: C.bg, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: C.border },
-  aiSectionLabel: { color: C.cyan, fontSize: 10, fontWeight: "700", marginBottom: 4, letterSpacing: 0.5 },
-  aiSectionText: { color: C.text, fontSize: 12, lineHeight: 17 },
-  aiRefreshBtn: { marginTop: 10, alignSelf: "center", paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8, backgroundColor: C.card, borderWidth: 1, borderColor: C.border },
-  aiRefreshText: { color: C.textDim, fontSize: 11, fontWeight: "600" },
+  aiLoadingText: { fontSize: 12 },
+  aiErrorBox: { padding: 10, borderRadius: 8, borderWidth: 1 },
+  aiErrorText: { fontSize: 11, lineHeight: 16 },
+  aiRetryBtn: { marginTop: 8, alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
+  aiRetryText: { fontSize: 11, fontWeight: "700" },
+  aiSection: { borderRadius: 8, padding: 10, borderWidth: 1 },
+  aiSectionLabel: { fontSize: 10, fontWeight: "700", marginBottom: 4, letterSpacing: 0.5 },
+  aiSectionText: { fontSize: 12, lineHeight: 17 },
+  aiRefreshBtn: { marginTop: 10, alignSelf: "center", paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
+  aiRefreshText: { fontSize: 11, fontWeight: "600" },
   // Smart Call Time
-  callTimeCard: { backgroundColor: C.card2, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.indigo + "55", marginTop: 12 },
+  callTimeCard: { borderRadius: 12, padding: 12, borderWidth: 1, marginTop: 12 },
   callTimeIcon: { fontSize: 16 },
-  callTimeTitle: { color: C.indigo, fontWeight: "700", fontSize: 12 },
-  callTimePill: { backgroundColor: C.indigo + "22", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: C.indigo + "66" },
-  callTimePillText: { color: C.indigo, fontSize: 11, fontWeight: "800" },
-  callTimeReason: { color: C.textDim, fontSize: 11, lineHeight: 16, marginTop: 8 },
-  callTimeBtn: { marginTop: 10, backgroundColor: C.indigo, borderRadius: 8, paddingVertical: 9, alignItems: "center" },
+  callTimeTitle: { fontWeight: "700", fontSize: 12 },
+  callTimePill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
+  callTimePillText: { fontSize: 11, fontWeight: "800" },
+  callTimeReason: { fontSize: 11, lineHeight: 16, marginTop: 8 },
+  callTimeBtn: { marginTop: 10, borderRadius: 8, paddingVertical: 9, alignItems: "center" },
   callTimeBtnText: { color: "#fff", fontWeight: "700", fontSize: 11 },
+  // Callback Matrix
+  callbackBox: { borderRadius: 12, padding: 12, borderWidth: 1, marginTop: 12 },
+  callbackTitle: { fontSize: 13, fontWeight: "700" },
+  callbackSub: { fontSize: 10, marginTop: 2 },
+  callbackBtn: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderRadius: 8, paddingVertical: 9, paddingHorizontal: 10 },
+  callbackDot: { width: 8, height: 8, borderRadius: 4 },
+  callbackBtnText: { fontSize: 11.5, fontWeight: "600" },
+  callbackNext: { fontSize: 10, fontWeight: "700" },
   // Objection
-  objBox: { backgroundColor: C.card2, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.alert + "44", marginTop: 12 },
-  objTitle: { color: C.alert, fontWeight: "700", fontSize: 12 },
-  objRow: { padding: 8, borderRadius: 8, marginTop: 6, borderWidth: 1, borderColor: C.border },
-  objRowActive: { borderColor: C.alert + "66", backgroundColor: C.alert + "12" },
-  objAnswer: { marginTop: 8, backgroundColor: C.bg, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: C.alert + "44" },
-  objCopyBtn: { marginTop: 8, alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: C.card2, borderWidth: 1, borderColor: C.border },
-  objCopyText: { color: C.cyan, fontSize: 10, fontWeight: "700" },
-  // Document Checklist
-  checklistBox: { backgroundColor: C.card2, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.border, marginTop: 12, marginBottom: 8 },
-  checklistTitle: { color: C.cyan, fontSize: 12, fontWeight: "700" },
-  checklistSub: { color: C.textMute, fontSize: 10, marginTop: 2, marginBottom: 8 },
-  checklistItem: { flexDirection: "row", gap: 8, paddingVertical: 3 },
-  checklistBullet: { color: C.textDim, fontSize: 13 },
-  checklistText: { color: C.text, fontSize: 11.5, flex: 1 },
+  objBox: { borderRadius: 12, padding: 12, borderWidth: 1, marginTop: 12 },
+  objTitle: { fontWeight: "700", fontSize: 12 },
+  objRow: { padding: 8, borderRadius: 8, marginTop: 6, borderWidth: 1 },
+  objAnswer: { marginTop: 8, borderRadius: 8, padding: 10, borderWidth: 1 },
+  objCopyBtn: { marginTop: 8, alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1 },
+  objCopyText: { fontSize: 10, fontWeight: "700" },
+  // Notes History
+  notesBox: { borderRadius: 12, padding: 12, borderWidth: 1, marginTop: 12 },
+  notesTitle: { fontSize: 13, fontWeight: "700" },
+  notesEmpty: { fontSize: 11, textAlign: "center", marginVertical: 10 },
+  noteItem: { borderLeftWidth: 2, paddingLeft: 10, paddingVertical: 6, marginBottom: 6 },
+  noteDate: { fontSize: 9, fontWeight: "700" },
+  noteText: { fontSize: 11.5, lineHeight: 16, marginTop: 2 },
+  noteAddBtn: { borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center", justifyContent: "center" },
 });
