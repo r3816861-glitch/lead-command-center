@@ -19,7 +19,8 @@ import {
 } from "../lib/constants";
 import {
   uid, productCode, todayISO, addDays, isToday, fmtDateTime, urgency,
-  U_STYLE, initials, toTitleCase, amtNum, toRupees, formatINR,
+  U_STYLE, initials, toTitleCase, amtNum, toRupees, formatINR, formatINRShort,
+  formatAmountShort, dayOfWeek,
   buyingIntentScore, intentBand, intentColor, focusRadarPriority,
   focusRadarBadge, quickParseDeterministic, whatsappTemplate, smsTemplate,
   leadsToCSV, emptyForm, buildGeminiPrompt, callGemini, parseCopilotResponse,
@@ -93,6 +94,7 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
+    priority: Notifications.AndroidNotificationPriority.HIGH,
   }),
 });
 
@@ -365,6 +367,22 @@ export default function App() {
     return { active: activeLeads.length, overdue, today, meetings, logins, pipelineValue, earnedToday, wonTodayCount: wonToday.length, total: leads.length };
   }, [leads, settings.commissionPct]);
 
+  // Daily Call Queue — leads scheduled for today
+  const todayCalls = useMemo(() => {
+    return leads
+      .filter((l) => !["lost", "disbursed", "converted"].includes(l.status))
+      .filter((l) => {
+        if (!l.nextCallDate) return false;
+        const u = urgency(l);
+        return u === "today" || u === "overdue";
+      })
+      .sort((a, b) => {
+        const ta = (a.nextCallTime || "99:99").replace(":", "");
+        const tb = (b.nextCallTime || "99:99").replace(":", "");
+        return ta.localeCompare(tb);
+      });
+  }, [leads]);
+
   const detailLead = leads.find((l) => l.id === detailId);
 
   const insets = useSafeAreaInsets();
@@ -447,6 +465,46 @@ export default function App() {
             ))}
           </ScrollView>
 
+          {/* ============================== AAJ KE CALLS (DAILY QUEUE) ============================== */}
+          {todayCalls.length > 0 && (
+            <View style={[styles.dailyQueueBox, { backgroundColor: C.card2, borderColor: C.warn + "55" }]}>
+              <View style={styles.dailyQueueHeader}>
+                <Text style={[styles.dailyQueueTitle, { color: C.warn }]}>📞 AAJ KE CALLS</Text>
+                <View style={[styles.dailyQueueCount, { backgroundColor: C.warn + "22", borderColor: C.warn + "66" }]}>
+                  <Text style={{ color: C.warn, fontSize: 11, fontWeight: "800" }}>{todayCalls.length}</Text>
+                </View>
+              </View>
+              {todayCalls.map((lead) => {
+                const u = urgency(lead);
+                const dt = fmtDateTime(lead.nextCallDate, lead.nextCallTime);
+                return (
+                  <TouchableOpacity
+                    key={lead.id}
+                    onPress={() => setDetailId(lead.id)}
+                    style={[styles.dailyQueueItem, { backgroundColor: C.inputBg, borderColor: C.border }]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.cardName, { color: C.text }]} numberOfLines={1}>{lead.name}</Text>
+                      <Text style={[styles.cardSub, { color: C.textMute }]}>
+                        {productCode(lead.product)} · {lead.phone}
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: "flex-end" }}>
+                      {dt && (
+                        <Text style={{ color: U_STYLE[u].color, fontSize: 10, fontWeight: "700" }}>
+                          {dt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                        </Text>
+                      )}
+                      <Text style={{ color: STATUS[lead.status]?.color || C.textMute, fontSize: 9, marginTop: 2 }}>
+                        {STATUS[lead.status]?.label || lead.status}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+
           {/* Earn box */}
           <View style={[styles.earnBox, { backgroundColor: C.card2, borderColor: C.won + "44" }]}>
             <Text style={[styles.earnLabel, { color: C.won }]}>AAJ KI KAMAI</Text>
@@ -461,7 +519,7 @@ export default function App() {
             <MetricCard label="Meetings" value={String(stats.meetings)} color={C.indigo} C={C} />
             <MetricCard label="Logins" value={String(stats.logins)} color={C.cyan} C={C} />
             <MetricCard label="Overdue" value={String(stats.overdue)} color={C.alert} C={C} />
-            <MetricCard label="Pipeline" value={formatINR(stats.pipelineValue)} color={C.won} C={C} small />
+            <MetricCard label="Pipeline" value={formatINRShort(stats.pipelineValue)} color={C.won} C={C} small />
           </View>
         </View>
 
@@ -545,7 +603,7 @@ export default function App() {
                           </Text>
                           <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6, alignItems: "center" }}>
                             {lead.loanAmount ? (
-                              <Text style={{ color: C.won, fontSize: 10.5, fontWeight: "600" }}>₹{lead.loanAmount}</Text>
+                              <Text style={{ color: C.won, fontSize: 10.5, fontWeight: "600" }}>{formatAmountShort(lead.loanAmount)}</Text>
                             ) : <View />}
                             <View style={[styles.scorePill, { backgroundColor: intentColor(score) + "22", borderColor: intentColor(score) }]}>
                               <Text style={{ color: intentColor(score), fontSize: 10, fontWeight: "700" }}>{score}</Text>
@@ -597,7 +655,7 @@ export default function App() {
                       )}
                     </View>
                     <Text style={[styles.cardSub, { color: C.textMute }]}>
-                      {productCode(lead.product)} · ₹{lead.loanAmount || "—"}
+                      {productCode(lead.product)} · {lead.loanAmount ? formatAmountShort(lead.loanAmount) : "—"}
                       {lead.cibilScore ? ` · CIBIL ${lead.cibilScore}` : ""}
                     </Text>
                     {u === "overdue" && (
@@ -650,7 +708,7 @@ export default function App() {
                     </View>
                     <Text style={[styles.cardSub, { color: C.textMute }]}>
                       {productCode(lead.product)} · {lead.bank === "Other" ? lead.customBank || "Other" : lead.bank || "—"}
-                      {lead.loanAmount ? ` · ₹${lead.loanAmount}` : ""}
+                      {lead.loanAmount ? ` · ${formatAmountShort(lead.loanAmount)}` : ""}
                     </Text>
                   </View>
                   <View style={{ alignItems: "flex-end" }}>
@@ -682,31 +740,41 @@ export default function App() {
       {/* ============================== QUICK ADD MODAL ============================== */}
       <Modal visible={showQuick} transparent animationType="slide" onRequestClose={() => setShowQuick(false)}>
         <View style={styles.modalWrap}>
-          <View style={[styles.sheet, { backgroundColor: C.card }]}>
-            <Text style={[styles.sheetTitle, { color: C.text }]}>Jaldi Add Karo</Text>
-            <TextInput
-              value={quickText}
-              onChangeText={setQuickText}
-              multiline
-              placeholder="Rampal 9013427441 Req 1cr lap kal 4 baje construction turnover 2cr itr 15l cibil 720 roi 9.5 top-up 20l..."
-              placeholderTextColor={C.textMute}
-              style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text, minHeight: 100, textAlignVertical: "top" }]}
-            />
-            <TouchableOpacity onPress={quickAdd} style={[styles.primaryBtn, { backgroundColor: C.indigo }]}>
-              <Text style={styles.primaryBtnText}>Auto-fill karo</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowQuick(false)} style={{ marginTop: 10, alignItems: "center" }}>
-              <Text style={{ color: C.textMute }}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, justifyContent: "flex-end" }}>
+            <ScrollView
+              style={[styles.sheet, { backgroundColor: C.card }]}
+              contentContainerStyle={{ paddingBottom: 30 }}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={[styles.sheetTitle, { color: C.text }]}>Jaldi Add Karo</Text>
+              <TextInput
+                value={quickText}
+                onChangeText={setQuickText}
+                multiline
+                placeholder="Rampal 9013427441 Req 1cr lap kal 4 baje construction turnover 2cr itr 15l cibil 720 roi 9.5 top-up 20l..."
+                placeholderTextColor={C.textMute}
+                style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text, minHeight: 100, textAlignVertical: "top" }]}
+              />
+              <TouchableOpacity onPress={quickAdd} style={[styles.primaryBtn, { backgroundColor: C.indigo }]}>
+                <Text style={styles.primaryBtnText}>Auto-fill karo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowQuick(false)} style={{ marginTop: 10, alignItems: "center" }}>
+                <Text style={{ color: C.textMute }}>Cancel</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 
       {/* ============================== LEAD FORM MODAL ============================== */}
       <Modal visible={showForm} transparent animationType="slide" onRequestClose={() => setShowForm(false)}>
         <View style={styles.modalWrap}>
-          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1, justifyContent: "flex-end" }}>
-            <ScrollView style={[styles.sheetTall, { backgroundColor: C.card }]}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, justifyContent: "flex-end" }}>
+            <ScrollView
+              style={[styles.sheetTall, { backgroundColor: C.card }]}
+              contentContainerStyle={{ paddingBottom: 40 }}
+              keyboardShouldPersistTaps="handled"
+            >
               <View style={styles.sheetHeader}>
                 <Text style={[styles.sheetTitle, { color: C.text }]}>{editingId ? "Edit Karo" : "Naya Lead"}</Text>
                 <TouchableOpacity onPress={() => setShowForm(false)}>
@@ -1299,6 +1367,12 @@ function LeadForm({ form, setForm, onSave, onCancel, C }) {
           <TextInput value={form.turnover} onChangeText={(v) => set("turnover", v)} placeholder="e.g. 2 Cr" placeholderTextColor={C.textMute} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
           <Text style={[styles.label, { color: C.textDim }]}>Additional Income Source</Text>
           <SelectField value={form.additionalIncome} options={ADDITIONAL_INCOME_SOURCES} onChange={(v) => set("additionalIncome", v)} C={C} />
+          {form.additionalIncome && form.additionalIncome !== "None" && (
+            <>
+              <Text style={[styles.label, { color: C.textDim }]}>Additional Income Amount (₹/Month)</Text>
+              <TextInput value={form.additionalIncomeAmt} onChangeText={(v) => set("additionalIncomeAmt", v)} placeholder="e.g. 15000" placeholderTextColor={C.textMute} keyboardType="numeric" style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
+            </>
+          )}
         </>
       )}
 
@@ -1311,6 +1385,11 @@ function LeadForm({ form, setForm, onSave, onCancel, C }) {
 
       <Text style={[styles.label, { color: C.textDim }]}>Next Call Date</Text>
       <TextInput value={form.nextCallDate} onChangeText={(v) => set("nextCallDate", v)} placeholder="YYYY-MM-DD" placeholderTextColor={C.textMute} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
+      {form.nextCallDate && /^\d{4}-\d{2}-\d{2}$/.test(form.nextCallDate) && (
+        <Text style={[styles.hint, { color: C.cyan, fontWeight: "700" }]}>
+          {dayOfWeek(form.nextCallDate) ? `${form.nextCallDate} (${dayOfWeek(form.nextCallDate)})` : ""}
+        </Text>
+      )}
       <Text style={[styles.label, { color: C.textDim }]}>Next Call Time</Text>
       <TextInput value={form.nextCallTime} onChangeText={(v) => set("nextCallTime", v)} placeholder="HH:MM" placeholderTextColor={C.textMute} style={[styles.input, { backgroundColor: C.inputBg, borderColor: C.border, color: C.text }]} />
 
@@ -1392,6 +1471,11 @@ const styles = StyleSheet.create({
   filterPill: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 1 },
   filterPillText: { fontSize: 11, fontWeight: "600" },
   earnBox: { marginTop: 14, borderRadius: 14, padding: 14, borderWidth: 1 },
+  dailyQueueBox: { marginTop: 14, marginBottom: 4, borderRadius: 14, padding: 12, borderWidth: 1 },
+  dailyQueueHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  dailyQueueTitle: { fontSize: 13, fontWeight: "800", letterSpacing: 0.5 },
+  dailyQueueCount: { width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  dailyQueueItem: { flexDirection: "row", alignItems: "center", padding: 10, borderRadius: 10, borderWidth: 1, marginBottom: 6, gap: 8 },
   earnLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 1 },
   earnValue: { fontSize: 24, fontWeight: "800", marginTop: 2 },
   earnSub: { fontSize: 10, marginTop: 2 },
