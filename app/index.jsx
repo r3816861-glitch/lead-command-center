@@ -126,8 +126,12 @@ async function scheduleLeadNotification(lead) {
         body: `${lead.name} — ${productCode(lead.product)} · ${lead.phone}`,
         data: { leadId: lead.id },
         sound: true,
+        priority: Notifications.AndroidNotificationPriority.HIGH,
       },
       trigger,
+      android: {
+        channelId: "default",
+      },
     });
   } catch (e) {}
 }
@@ -176,6 +180,14 @@ export default function App() {
       setLeads(l);
       setLoading(false);
       if (Platform.OS !== "web") {
+        if (Platform.OS === "android") {
+          await Notifications.setNotificationChannelAsync("default", {
+            name: "default",
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: "#FF231F7C",
+          });
+        }
         await ensureNotificationsPermission();
         await rescheduleAllNotifications(l);
       } else if (typeof Notification !== "undefined" && Notification.requestPermission) {
@@ -782,10 +794,10 @@ export default function App() {
       {/* ============================== QUICK ADD MODAL ============================== */}
       <Modal visible={showQuick} transparent animationType="slide" onRequestClose={() => setShowQuick(false)}>
         <View style={styles.modalWrap}>
-          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, justifyContent: "flex-end" }}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, width: "100%", justifyContent: "center", alignItems: "center" }}>
             <ScrollView
               style={[styles.sheet, { backgroundColor: C.card }]}
-              contentContainerStyle={{ paddingBottom: 30 }}
+              contentContainerStyle={{ flexGrow: 1, paddingBottom: 30 }}
               keyboardShouldPersistTaps="handled"
             >
               <Text style={[styles.sheetTitle, { color: C.text }]}>Jaldi Add Karo</Text>
@@ -811,10 +823,10 @@ export default function App() {
       {/* ============================== LEAD FORM MODAL ============================== */}
       <Modal visible={showForm} transparent animationType="slide" onRequestClose={() => setShowForm(false)}>
         <View style={styles.modalWrap}>
-          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, justifyContent: "flex-end" }}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, width: "100%", justifyContent: "center", alignItems: "center" }}>
             <ScrollView
               style={[styles.sheetTall, { backgroundColor: C.card }]}
-              contentContainerStyle={{ paddingBottom: 40 }}
+              contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }}
               keyboardShouldPersistTaps="handled"
             >
               <View style={styles.sheetHeader}>
@@ -1561,9 +1573,9 @@ const styles = StyleSheet.create({
   quickBtn: { position: "absolute", bottom: 24, left: 20, borderWidth: 1, borderRadius: 24, paddingHorizontal: 16, paddingVertical: 12 },
   quickBtnText: { fontWeight: "700", fontSize: 12.5 },
   fab: { position: "absolute", bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },
-  modalWrap: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.7)" },
-  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, paddingBottom: 30 },
-  sheetTall: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, maxHeight: "90%" },
+  modalWrap: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.7)" },
+  sheet: { width: "92%", maxHeight: "88%", borderRadius: 16, padding: 16, paddingBottom: 30 },
+  sheetTall: { width: "92%", maxHeight: "88%", borderRadius: 16, padding: 16 },
   sheetHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
   sheetTitle: { fontSize: 16, fontWeight: "700" },
   label: { fontSize: 11, fontWeight: "600", marginBottom: 4, marginTop: 6 },
