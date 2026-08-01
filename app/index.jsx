@@ -20,7 +20,7 @@ import {
 import {
   uid, productCode, todayISO, addDays, isToday, fmtDateTime, urgency,
   U_STYLE, initials, toTitleCase, amtNum, toRupees, formatINR, formatINRShort,
-  formatAmountShort, dayOfWeek,
+  formatAmountShort, dayOfWeek, normalizeDate, todayStr, nowStr,
   buyingIntentScore, intentBand, intentColor, focusRadarPriority,
   focusRadarBadge, quickParseDeterministic, whatsappTemplate, smsTemplate,
   leadsToCSV, emptyForm, buildGeminiPrompt, callGemini, parseCopilotResponse,
@@ -178,8 +178,50 @@ export default function App() {
       if (Platform.OS !== "web") {
         await ensureNotificationsPermission();
         await rescheduleAllNotifications(l);
+      } else if (typeof Notification !== "undefined" && Notification.requestPermission) {
+        try { await Notification.requestPermission(); } catch (e) {}
       }
     })();
+  }, []);
+
+  // Web background notification timer — checks every 30 seconds for leads
+  // whose nextCallDate (normalized YYYY/MM/DD) and nextCallTime (HH:MM) match
+  // the current local date/time. Fires a browser Notification (or alert fallback)
+  // and sets lead.notified = true to prevent duplicate alerts.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const interval = setInterval(() => {
+      const today = todayStr();
+      const now = nowStr();
+      setLeads((prev) => {
+        let changed = false;
+        const next = prev.map((l) => {
+          if (l.notified) return l;
+          if (!l.nextCallDate || !l.nextCallTime) return l;
+          if (["converted", "lost", "disbursed"].includes(l.status)) return l;
+          const leadDate = normalizeDate(l.nextCallDate);
+          if (leadDate === today && l.nextCallTime === now) {
+            changed = true;
+            const title = "Call Reminder";
+            const body = `${l.name || "Lead"} — ${productCode(l.product)} · ${l.phone || ""}`;
+            try {
+              if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+                new Notification(title, { body });
+              } else {
+                alert(`${title}: ${body}`);
+              }
+            } catch (e) {
+              alert(`${title}: ${body}`);
+            }
+            return { ...l, notified: true };
+          }
+          return l;
+        });
+        if (changed) { saveLeads(next); return next; }
+        return prev;
+      });
+    }, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const persist = useCallback(async (next) => {
@@ -791,7 +833,8 @@ export default function App() {
       {detailLead && (
         <Modal visible transparent animationType="slide" onRequestClose={() => setDetailId(null)}>
           <View style={styles.modalWrap}>
-            <ScrollView style={[styles.sheetTall, { backgroundColor: C.card }]}>
+            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, justifyContent: "flex-end" }}>
+            <ScrollView style={[styles.sheetTall, { backgroundColor: C.card }]} keyboardShouldPersistTaps="handled">
               <View style={styles.sheetHeader}>
                 <Text style={[styles.sheetTitle, { color: C.text }]}>{detailLead.name}</Text>
                 <TouchableOpacity onPress={() => setDetailId(null)}>
@@ -900,6 +943,7 @@ export default function App() {
                 <Text style={{ color: C.textMute }}>Band Karo</Text>
               </TouchableOpacity>
             </ScrollView>
+            </KeyboardAvoidingView>
           </View>
         </Modal>
       )}
@@ -907,6 +951,7 @@ export default function App() {
       {/* ============================== SETTINGS MODAL ============================== */}
       <Modal visible={showSettings} transparent animationType="slide" onRequestClose={() => setShowSettings(false)}>
         <View style={styles.modalWrap}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, justifyContent: "flex-end" }}>
           <View style={[styles.sheet, { backgroundColor: C.card }]}>
             <View style={styles.sheetHeader}>
               <Text style={[styles.sheetTitle, { color: C.text }]}>Settings</Text>
@@ -939,6 +984,7 @@ export default function App() {
               <Text style={styles.primaryBtnText}>Save</Text>
             </TouchableOpacity>
           </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </SafeAreaView>
