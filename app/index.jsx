@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView, Modal, Linking,
   StyleSheet, ActivityIndicator, Platform, KeyboardAvoidingView, SafeAreaView,
-  Pressable, FlatList, Dimensions, StatusBar,
+  Pressable, FlatList, Dimensions, StatusBar, Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -112,29 +112,36 @@ async function ensureNotificationsPermission() {
   }
 }
 
+// Schedules a local notification for a lead's next call. Returns the delay in
+// seconds (>=1) when scheduled, or 0 when skipped (no date, invalid date, or
+// non-future time). Uses an explicit `seconds` trigger — the form expo-notifications
+// reliably honors on Android — instead of a bare Date, which could fire immediately.
 async function scheduleLeadNotification(lead) {
-  if (!lead.nextCallDate) return;
+  if (!lead.nextCallDate) return 0;
   const dt = fmtDateTime(lead.nextCallDate, lead.nextCallTime);
-  if (!dt) return;
-  const triggerMs = dt.getTime() - Date.now();
-  if (triggerMs < 5000) return;
-  const triggerDate = new Date(Date.now() + triggerMs);
+  if (!dt || isNaN(dt.getTime())) return 0;
+  const now = Date.now();
+  const targetTime = dt.getTime();
+  const delayInSeconds = Math.floor((targetTime - now) / 1000);
+  if (delayInSeconds < 1) return 0;
   try {
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: "Call Reminder",
-        body: `${lead.name} — ${productCode(lead.product)} · ${lead.phone}`,
+        title: `📞 Call Reminder: ${lead.name}`,
+        body: `Follow up on ${lead.product} loan (${lead.phone})`,
         data: { leadId: lead.id },
-        sound: true,
+        sound: "default",
         priority: Notifications.AndroidNotificationPriority.HIGH,
       },
-      trigger: { date: triggerDate, channelId: "call-reminders" },
+      trigger: { seconds: delayInSeconds, channelId: "call-reminders" },
     });
     if (__DEV__) {
-      const secs = Math.round((triggerDate.getTime() - Date.now()) / 1000);
-      console.log(`[Notify] Scheduled for ${lead.name} in ${secs}s (${triggerDate.toLocaleString()})`);
+      console.log(`[Notify] Scheduled for ${lead.name} in ${delayInSeconds}s (${dt.toLocaleString()})`);
     }
-  } catch (e) {}
+    return delayInSeconds;
+  } catch (e) {
+    return 0;
+  }
 }
 
 async function cancelAllScheduled() {
@@ -258,33 +265,42 @@ export default function App() {
     setDetailId(null);
   }
 
-  function saveLead() {
+  async function saveLead() {
     if (!form.name.trim() || !form.phone.trim()) return;
     const convertedAt =
       form.status === "converted" || form.status === "disbursed"
         ? form.convertedAt || Date.now()
         : null;
+    let savedLead;
     if (editingId) {
-      persist(
-        leads.map((l) =>
-          l.id === editingId
-            ? { ...form, id: editingId, convertedAt, history: l.history || form.history }
-            : l
-        )
-      );
+      savedLead = { ...form, id: editingId, convertedAt, history: leads.find((l) => l.id === editingId)?.history || form.history };
+      persist(leads.map((l) => (l.id === editingId ? savedLead : l)));
     } else {
-      const newLead = {
+      savedLead = {
         ...form,
         id: uid(),
         createdAt: Date.now(),
         history: form.notes ? [{ date: Date.now(), note: form.notes }] : [],
         convertedAt,
       };
-      persist([...leads, newLead]);
+      persist([...leads, savedLead]);
     }
     setShowForm(false);
     setForm({ ...emptyForm });
     setEditingId(null);
+
+    // User-facing confirmation for the reminder timing. Only show feedback for
+    // the lead just saved, not the bulk reschedule that persist triggers.
+    if (Platform.OS !== "web" && savedLead.nextCallDate) {
+      const dt = fmtDateTime(savedLead.nextCallDate, savedLead.nextCallTime);
+      const delayInSeconds = dt ? Math.floor((dt.getTime() - Date.now()) / 1000) : 0;
+      if (delayInSeconds <= 0) {
+        Alert.alert("Reminder not set", "Please select a future time for the call reminder.");
+      } else {
+        const mins = Math.max(1, Math.round(delayInSeconds / 60));
+        Alert.alert("Reminder scheduled", `Reminder scheduled for ${savedLead.name} in ${mins} minute${mins === 1 ? "" : "s"}.`);
+      }
+    }
   }
 
   function deleteLead(id) {
