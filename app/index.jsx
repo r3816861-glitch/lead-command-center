@@ -93,7 +93,7 @@ Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
     shouldPlaySound: true,
-    shouldSetBadge: false,
+    shouldSetBadge: true,
     priority: Notifications.AndroidNotificationPriority.HIGH,
   }),
 });
@@ -118,7 +118,7 @@ async function scheduleLeadNotification(lead) {
   if (!dt) return;
   const triggerMs = dt.getTime() - Date.now();
   if (triggerMs < 5000) return;
-  const trigger = new Date(Date.now() + triggerMs);
+  const triggerDate = new Date(Date.now() + triggerMs);
   try {
     await Notifications.scheduleNotificationAsync({
       content: {
@@ -128,10 +128,7 @@ async function scheduleLeadNotification(lead) {
         sound: true,
         priority: Notifications.AndroidNotificationPriority.HIGH,
       },
-      trigger,
-      android: {
-        channelId: "call-reminders",
-      },
+      trigger: { date: triggerDate, channelId: "call-reminders" },
     });
     if (__DEV__) {
       const secs = Math.round((triggerDate.getTime() - Date.now()) / 1000);
@@ -188,8 +185,9 @@ export default function App() {
           await Notifications.setNotificationChannelAsync("call-reminders", {
             name: "Call Reminders",
             importance: Notifications.AndroidImportance.MAX,
-            sound: "default",
             vibrationPattern: [0, 250, 250, 250],
+            lightColor: "#FF231F7C",
+            sound: "default",
             enableVibrate: true,
           });
         }
@@ -1022,6 +1020,24 @@ export default function App() {
             </Text>
             <TouchableOpacity onPress={saveSettingsHandler} style={[styles.primaryBtn, { backgroundColor: C.indigo }]}>
               <Text style={styles.primaryBtnText}>Save</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={async () => {
+                try {
+                  await Notifications.scheduleNotificationAsync({
+                    content: {
+                      title: "Test Notification",
+                      body: "This is a 5-second test — sound & banner check.",
+                      sound: true,
+                      priority: Notifications.AndroidNotificationPriority.HIGH,
+                    },
+                    trigger: { date: new Date(Date.now() + 5000), channelId: "call-reminders" },
+                  });
+                } catch (e) {}
+              }}
+              style={[styles.primaryBtn, { backgroundColor: C.cyan, marginTop: 10 }]}
+            >
+              <Text style={styles.primaryBtnText}>Test 5s Notification</Text>
             </TouchableOpacity>
           </View>
           </KeyboardAvoidingView>

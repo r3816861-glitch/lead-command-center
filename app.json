@@ -20,6 +20,7 @@
         "backgroundColor": "#0A1F14"
       },
       "permissions": [
+        "NOTIFICATIONS",
         "android.permission.SCHEDULE_EXACT_ALARM",
         "android.permission.USE_EXACT_ALARM",
         "android.permission.POST_NOTIFICATIONS"
@@ -29,7 +30,13 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-notifications"
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#06B6D4"
+        }
+      ]
     ],
     "extra": {
       "router": {
