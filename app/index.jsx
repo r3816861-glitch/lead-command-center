@@ -130,9 +130,13 @@ async function scheduleLeadNotification(lead) {
       },
       trigger,
       android: {
-        channelId: "default",
+        channelId: "call-reminders",
       },
     });
+    if (__DEV__) {
+      const secs = Math.round((triggerDate.getTime() - Date.now()) / 1000);
+      console.log(`[Notify] Scheduled for ${lead.name} in ${secs}s (${triggerDate.toLocaleString()})`);
+    }
   } catch (e) {}
 }
 
@@ -181,11 +185,12 @@ export default function App() {
       setLoading(false);
       if (Platform.OS !== "web") {
         if (Platform.OS === "android") {
-          await Notifications.setNotificationChannelAsync("default", {
-            name: "default",
+          await Notifications.setNotificationChannelAsync("call-reminders", {
+            name: "Call Reminders",
             importance: Notifications.AndroidImportance.MAX,
+            sound: "default",
             vibrationPattern: [0, 250, 250, 250],
-            lightColor: "#FF231F7C",
+            enableVibrate: true,
           });
         }
         await ensureNotificationsPermission();
@@ -745,36 +750,59 @@ export default function App() {
               return (
                 <TouchableOpacity
                   key={lead.id}
+                  activeOpacity={0.92}
                   onPress={() => setDetailId(lead.id)}
-                  style={[styles.listRow, { backgroundColor: C.card, borderColor: C.border }, styles.cardShadow(C)]}
+                  style={[styles.leadCard3D, { backgroundColor: C.card, borderColor: C.border }, styles.cardShadow(C)]}
                 >
-                  <View style={[styles.avatar, { backgroundColor: C.card2 }]}>
-                    <Text style={[styles.avatarText, { color: C.cyan }]}>{initials(lead.name)}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <Text style={[styles.cardName, { color: C.text }]} numberOfLines={1}>{lead.name}</Text>
-                      {badge && (
-                        <View style={[styles.radarBadge, { backgroundColor: badge.color + "22", borderColor: badge.color }]}>
-                          <Text style={{ color: badge.color, fontSize: 8, fontWeight: "800" }}>{badge.label}</Text>
+                  <View style={styles.card3DInner}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                      <View style={[styles.avatar3D, { backgroundColor: C.card2, borderColor: C.border }]}>
+                        <Text style={[styles.avatarText, { color: C.cyan }]}>{initials(lead.name)}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <Text style={[styles.cardName, { color: C.text }]} numberOfLines={1}>{lead.name}</Text>
+                          {badge && (
+                            <View style={[styles.radarBadge, { backgroundColor: badge.color + "22", borderColor: badge.color }]}>
+                              <Text style={{ color: badge.color, fontSize: 8, fontWeight: "800" }}>{badge.label}</Text>
+                            </View>
+                          )}
                         </View>
-                      )}
+                        <Text style={[styles.cardSub, { color: C.textMute }]}>
+                          {productCode(lead.product)} · {lead.bank === "Other" ? lead.customBank || "Other" : lead.bank || "—"}
+                          {lead.loanAmount ? ` · ${formatAmountShort(lead.loanAmount)}` : ""}
+                        </Text>
+                      </View>
                     </View>
-                    <Text style={[styles.cardSub, { color: C.textMute }]}>
-                      {productCode(lead.product)} · {lead.bank === "Other" ? lead.customBank || "Other" : lead.bank || "—"}
-                      {lead.loanAmount ? ` · ${formatAmountShort(lead.loanAmount)}` : ""}
-                    </Text>
-                  </View>
-                  <View style={{ alignItems: "flex-end" }}>
-                    <Text style={{ color: intentColor(score), fontSize: 11, fontWeight: "700" }}>{score}</Text>
-                    <Text style={[styles.badge, { color: STATUS[lead.status]?.color || C.textMute }]}>
-                      {STATUS[lead.status]?.label || lead.status}
-                    </Text>
-                    {dt && (
-                      <Text style={{ color: U_STYLE[u].color, fontSize: 10, marginTop: 2 }}>
-                        {dt.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
-                      </Text>
-                    )}
+                    <View style={styles.card3DFooter}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <Text style={{ color: intentColor(score), fontSize: 11, fontWeight: "700" }}>{score}</Text>
+                        <Text style={[styles.badge, { color: STATUS[lead.status]?.color || C.textMute }]}>
+                          {STATUS[lead.status]?.label || lead.status}
+                        </Text>
+                        {dt && (
+                          <Text style={{ color: U_STYLE[u].color, fontSize: 10 }}>
+                            {dt.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
+                          </Text>
+                        )}
+                      </View>
+                      <View style={{ flexDirection: "row", gap: 8 }}>
+                        <TouchableOpacity
+                          activeOpacity={0.7}
+                          onPress={(e) => { e.stopPropagation? e.stopPropagation(): null; Linking.openURL(`tel:${lead.phone}`); }}
+                          style={[styles.iconBtn3D, { backgroundColor: C.indigo }]}
+                        >
+                          <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>📞</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          activeOpacity={0.7}
+                          onPress={(e) => { e.stopPropagation? e.stopPropagation(): null; Linking.openURL(`https://wa.me/91${lead.phone.replace(/\D/g, "")}?text=${encodeURIComponent(whatsappTemplate(lead))}`); }}
+                          style={[styles.iconBtn3D, { backgroundColor: C.won }]}
+                        >
+                          <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>💬</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   </View>
                 </TouchableOpacity>
               );
@@ -1551,6 +1579,11 @@ const styles = StyleSheet.create({
   emptyCol: { padding: 12, borderWidth: 1, borderStyle: "dashed", borderRadius: 8, alignItems: "center" },
   emptyColText: { fontSize: 10 },
   card: { borderRadius: 10, padding: 10, borderWidth: 1, marginBottom: 8 },
+  leadCard3D: { borderRadius: 16, marginBottom: 10, borderWidth: 1, overflow: "hidden" },
+  card3DInner: { padding: 14, gap: 12 },
+  avatar3D: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  card3DFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "rgba(150,150,150,0.2)" },
+  iconBtn3D: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 3 },
   cardShadow: (C) => Platform.select({
     ios: { shadowColor: C.shadow, shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
     android: { elevation: 3 },
