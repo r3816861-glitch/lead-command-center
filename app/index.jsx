@@ -32,6 +32,7 @@ import {
 import {
   loadLeads, saveLeads, loadSettings, saveSettings, loadTheme, saveTheme,
 } from "../lib/storage";
+import AiActionsScreen from "./actions";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 
@@ -595,60 +596,9 @@ export default function App() {
           </View>
         )}
 
-        {/* ============================== AI ACTIONS (FOCUS RADAR) ============================== */}
+        {/* ============================== AI ACTIONS ============================== */}
         {tab === "ai" && (
-          <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
-            <Text style={[styles.radarTitle, { color: C.text }]}>🎯 Focus Radar</Text>
-            <Text style={[styles.radarSub, { color: C.textMute }]}>
-              High-commission deals sorted by priority — loan amount, CIBIL, call timing
-            </Text>
-            {radarSortedLeads.length === 0 && (
-              <Text style={[styles.emptyText, { color: C.textMute }]}>Koi lead nahi hai.</Text>
-            )}
-            {radarSortedLeads.map((lead, idx) => {
-              const score = buyingIntentScore(lead);
-              const badge = focusRadarBadge(lead);
-              const u = urgency(lead);
-              const priority = focusRadarPriority(lead);
-              return (
-                <TouchableOpacity
-                  key={lead.id}
-                  onPress={() => setDetailId(lead.id)}
-                  style={[styles.radarRow, { backgroundColor: C.card, borderColor: C.border }, styles.cardShadow(C)]}
-                >
-                  <View style={styles.radarRank}>
-                    <Text style={[styles.radarRankText, { color: idx < 3 ? C.alert : C.textMute }]}>
-                      #{idx + 1}
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <Text style={[styles.cardName, { color: C.text }]} numberOfLines={1}>{lead.name}</Text>
-                      {badge && (
-                        <View style={[styles.radarBadge, { backgroundColor: badge.color + "22", borderColor: badge.color }]}>
-                          <Text style={{ color: badge.color, fontSize: 8, fontWeight: "800" }}>{badge.label}</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={[styles.cardSub, { color: C.textMute }]}>
-                      {productCode(lead.product)} · {lead.loanAmount ? formatAmountShort(lead.loanAmount) : "—"}
-                      {lead.cibilScore ? ` · CIBIL ${lead.cibilScore}` : ""}
-                    </Text>
-                    {u === "overdue" && (
-                      <Text style={{ color: C.alert, fontSize: 9, fontWeight: "700", marginTop: 2 }}>OVERDUE CALL</Text>
-                    )}
-                    {u === "today" && (
-                      <Text style={{ color: C.warn, fontSize: 9, fontWeight: "700", marginTop: 2 }}>AAJ CALL KARO</Text>
-                    )}
-                  </View>
-                  <View style={{ alignItems: "flex-end" }}>
-                    <Text style={{ color: intentColor(score), fontSize: 11, fontWeight: "700" }}>{score}</Text>
-                    <Text style={{ color: C.textMute, fontSize: 9, marginTop: 2 }}>{Math.round(priority)} pts</Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <AiActionsScreen leads={leads} />
         )}
 
         {/* ============================== ALL LEADS (LIST) ============================== */}
