@@ -6,8 +6,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Notifications from "expo-notifications";
 import * as Clipboard from "expo-clipboard";
+import {
+  ensureNotificationsPermission, setupAndroidChannel,
+  rescheduleAllNotifications, computeDelayInSeconds,
+  scheduleTestNotification,
+} from "../lib/notifications";
 
 import {
   STATUS_ORDER, STATUS, INTEREST, PRODUCTS, BANKS, EMPLOYMENT,
@@ -88,77 +92,12 @@ function useTheme() {
   return { mode, toggle, colors, loaded };
 }
 
-// ============================== NOTIFICATIONS ==============================
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    priority: Notifications.AndroidNotificationPriority.HIGH,
-  }),
-});
-
-async function ensureNotificationsPermission() {
-  try {
-    const { status: existing } = await Notifications.getPermissionsAsync();
-    let final = existing;
-    if (existing !== "granted") {
-      const { status } = await Notifications.requestPermissionsAsync();
-      final = status;
-    }
-    return final === "granted";
-  } catch (e) {
-    return false;
-  }
-}
-
-// Schedules a local notification for a lead's next call. Returns the delay in
-// seconds (>=1) when scheduled, or 0 when skipped (no date, invalid date, or
-// non-future time). Uses an explicit `seconds` trigger — the form expo-notifications
-// reliably honors on Android — instead of a bare Date, which could fire immediately.
-async function scheduleLeadNotification(lead) {
-  if (!lead.nextCallDate) return 0;
-  const dt = fmtDateTime(lead.nextCallDate, lead.nextCallTime);
-  if (!dt || isNaN(dt.getTime())) return 0;
-  const now = Date.now();
-  const targetTime = dt.getTime();
-  const delayInSeconds = Math.floor((targetTime - now) / 1000);
-  if (delayInSeconds < 1) return 0;
-  try {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: `📞 Call Reminder: ${lead.name}`,
-        body: `Follow up on ${lead.product} loan (${lead.phone})`,
-        data: { leadId: lead.id },
-        sound: "default",
-        priority: Notifications.AndroidNotificationPriority.HIGH,
-      },
-      trigger: { seconds: delayInSeconds, channelId: "call-reminders" },
-    });
-    if (__DEV__) {
-      console.log(`[Notify] Scheduled for ${lead.name} in ${delayInSeconds}s (${dt.toLocaleString()})`);
-    }
-    return delayInSeconds;
-  } catch (e) {
-    return 0;
-  }
-}
-
-async function cancelAllScheduled() {
-  try {
-    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-    await Promise.all(scheduled.map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier)));
-  } catch (e) {}
-}
-
-async function rescheduleAllNotifications(leads) {
-  await cancelAllScheduled();
-  for (const lead of leads) {
-    if (!["converted", "lost", "disbursed"].includes(lead.status)) {
-      await scheduleLeadNotification(lead);
-    }
-  }
-}
+const NAV_TABS = [
+  { key: "warroom", icon: "⚔", label: "War Room" },
+  { key: "ai", icon: "🤖", label: "AI Actions" },
+  { key: "tools", icon: "🛠", label: "Tools" },
+  { key: "leads", icon: "📋", label: "All Leads" },
+];
 
 // ============================== APP ==============================
 export default function App() {
@@ -166,7 +105,7 @@ export default function App() {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-  const [tab, setTab] = useState("pipeline");
+  const [tab, setTab] = useState("warroom");
   const [showQuick, setShowQuick] = useState(false);
   const [quickText, setQuickText] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -188,16 +127,7 @@ export default function App() {
       setLeads(l);
       setLoading(false);
       if (Platform.OS !== "web") {
-        if (Platform.OS === "android") {
-          await Notifications.setNotificationChannelAsync("call-reminders", {
-            name: "Call Reminders",
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 250, 250, 250],
-            lightColor: "#FF231F7C",
-            sound: "default",
-            enableVibrate: true,
-          });
-        }
+        await setupAndroidChannel();
         await ensureNotificationsPermission();
         await rescheduleAllNotifications(l);
       } else if (typeof Notification !== "undefined" && Notification.requestPermission) {
@@ -292,8 +222,7 @@ export default function App() {
     // User-facing confirmation for the reminder timing. Only show feedback for
     // the lead just saved, not the bulk reschedule that persist triggers.
     if (Platform.OS !== "web" && savedLead.nextCallDate) {
-      const dt = fmtDateTime(savedLead.nextCallDate, savedLead.nextCallTime);
-      const delayInSeconds = dt ? Math.floor((dt.getTime() - Date.now()) / 1000) : 0;
+      const delayInSeconds = computeDelayInSeconds(savedLead);
       if (delayInSeconds <= 0) {
         Alert.alert("Reminder not set", "Please select a future time for the call reminder.");
       } else {
@@ -417,7 +346,7 @@ export default function App() {
       });
     }
     // Pipeline stage filter
-    if (pipelineStage !== "all" && tab === "pipeline") {
+    if (pipelineStage !== "all" && tab === "warroom") {
       result = result.filter((l) => l.status === pipelineStage);
     }
     return result;
@@ -473,7 +402,7 @@ export default function App() {
       <StatusBar style={mode === "dark" ? "light" : "dark"} translucent={false} />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: 140 }}
         stickyHeaderIndices={[0]}
       >
         {/* ============================== HEADER ============================== */}
@@ -596,23 +525,8 @@ export default function App() {
           </View>
         </View>
 
-        {/* ============================== TABS ============================== */}
-        <View style={[styles.tabRow, { backgroundColor: C.bg }]}>
-          {["pipeline", "radar", "list"].map((t) => (
-            <TouchableOpacity
-              key={t}
-              onPress={() => setTab(t)}
-              style={[styles.tabBtn, tab === t && { backgroundColor: C.indigo + "22", borderColor: C.indigo }]}
-            >
-              <Text style={[styles.tabText, { color: tab === t ? C.indigo : C.textMute }]}>
-                {t === "pipeline" ? "Pipeline" : t === "radar" ? "Focus Radar" : "List"}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* ============================== PIPELINE TRACKER ============================== */}
-        {tab === "pipeline" && (
+        {/* ============================== WAR ROOM (PIPELINE TRACKER) ============================== */}
+        {tab === "warroom" && (
           <View style={{ marginTop: 12 }}>
             {/* Stage filter chips */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingBottom: 10 }}>
@@ -692,8 +606,8 @@ export default function App() {
           </View>
         )}
 
-        {/* ============================== FOCUS RADAR ============================== */}
-        {tab === "radar" && (
+        {/* ============================== AI ACTIONS (FOCUS RADAR) ============================== */}
+        {tab === "ai" && (
           <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
             <Text style={[styles.radarTitle, { color: C.text }]}>🎯 Focus Radar</Text>
             <Text style={[styles.radarSub, { color: C.textMute }]}>
@@ -748,8 +662,8 @@ export default function App() {
           </View>
         )}
 
-        {/* ============================== LIST ============================== */}
-        {tab === "list" && (
+        {/* ============================== ALL LEADS (LIST) ============================== */}
+        {tab === "leads" && (
           <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
             {radarSortedLeads.length === 0 && (
               <Text style={[styles.emptyText, { color: C.textMute }]}>
@@ -823,6 +737,67 @@ export default function App() {
             })}
           </View>
         )}
+
+        {/* ============================== TOOLS ============================== */}
+        {tab === "tools" && (
+          <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
+            <TouchableOpacity
+              onPress={() => setShowQuick(true)}
+              style={[styles.toolCard, { backgroundColor: C.card, borderColor: C.border }, styles.cardShadow(C)]}
+            >
+              <Text style={{ fontSize: 24 }}>✨</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.toolTitle, { color: C.text }]}>Quick Add</Text>
+                <Text style={[styles.toolDesc, { color: C.textMute }]}>Paste Hinglish text to auto-extract lead details</Text>
+              </View>
+              <Text style={{ color: C.textMute, fontSize: 18 }}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={async () => {
+                try {
+                  const csv = leadsToCSV(leads);
+                  await Clipboard.setStringAsync(csv);
+                  Alert.alert("Exported", `${leads.length} leads copied to clipboard as CSV`);
+                } catch (e) {
+                  Alert.alert("Error", "Could not export CSV");
+                }
+              }}
+              style={[styles.toolCard, { backgroundColor: C.card, borderColor: C.border }, styles.cardShadow(C)]}
+            >
+              <Text style={{ fontSize: 24 }}>📊</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.toolTitle, { color: C.text }]}>Export CSV</Text>
+                <Text style={[styles.toolDesc, { color: C.textMute }]}>Copy all leads as CSV to clipboard</Text>
+              </View>
+              <Text style={{ color: C.textMute, fontSize: 18 }}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => { setSettingsDraft(settings); setShowSettings(true); }}
+              style={[styles.toolCard, { backgroundColor: C.card, borderColor: C.border }, styles.cardShadow(C)]}
+            >
+              <Text style={{ fontSize: 24 }}>⚙</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.toolTitle, { color: C.text }]}>Settings</Text>
+                <Text style={[styles.toolDesc, { color: C.textMute }]}>Commission %, Gemini API key, theme</Text>
+              </View>
+              <Text style={{ color: C.textMute, fontSize: 18 }}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={scheduleTestNotification}
+              style={[styles.toolCard, { backgroundColor: C.card, borderColor: C.border }, styles.cardShadow(C)]}
+            >
+              <Text style={{ fontSize: 24 }}>🔔</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.toolTitle, { color: C.text }]}>Test Notification</Text>
+                <Text style={[styles.toolDesc, { color: C.textMute }]}>Fire a 5-second test reminder</Text>
+              </View>
+              <Text style={{ color: C.textMute, fontSize: 18 }}>›</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
 
       {/* ============================== FAB + QUICK ============================== */}
@@ -832,6 +807,21 @@ export default function App() {
       <TouchableOpacity onPress={openAdd} style={[styles.fab, { backgroundColor: C.indigo }, styles.cardShadow(C)]}>
         <Text style={{ color: "#fff", fontSize: 26, fontWeight: "600" }}>+</Text>
       </TouchableOpacity>
+
+      {/* ============================== BOTTOM NAVIGATION ============================== */}
+      <View style={styles.bottomNavWrap}>
+        {NAV_TABS.map((t) => (
+          <TouchableOpacity key={t.key} onPress={() => setTab(t.key)} style={styles.bottomNavItem}>
+            <Text style={[styles.bottomNavIcon, { color: tab === t.key ? "#06B6D4" : "#64748B" }]}>
+              {t.icon}
+            </Text>
+            <Text style={[styles.bottomNavLabel, { color: tab === t.key ? "#06B6D4" : "#64748B" }]}>
+              {t.label}
+            </Text>
+            {tab === t.key && <View style={styles.bottomNavIndicator} />}
+          </TouchableOpacity>
+        ))}
+      </View>
 
       {/* ============================== QUICK ADD MODAL ============================== */}
       <Modal visible={showQuick} transparent animationType="slide" onRequestClose={() => setShowQuick(false)}>
@@ -1038,19 +1028,7 @@ export default function App() {
               <Text style={styles.primaryBtnText}>Save</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={async () => {
-                try {
-                  await Notifications.scheduleNotificationAsync({
-                    content: {
-                      title: "Test Notification",
-                      body: "This is a 5-second test — sound & banner check.",
-                      sound: true,
-                      priority: Notifications.AndroidNotificationPriority.HIGH,
-                    },
-                    trigger: { date: new Date(Date.now() + 5000), channelId: "call-reminders" },
-                  });
-                } catch (e) {}
-              }}
+              onPress={scheduleTestNotification}
               style={[styles.primaryBtn, { backgroundColor: C.cyan, marginTop: 10 }]}
             >
               <Text style={styles.primaryBtnText}>Test 5s Notification</Text>
@@ -1601,9 +1579,14 @@ const styles = StyleSheet.create({
   metricBox: { width: (SCREEN_W - 32 - 24) / 4, minWidth: 80, borderRadius: 10, padding: 8, alignItems: "center", borderWidth: 1 },
   metricVal: { fontSize: 15, fontWeight: "800" },
   metricLabel: { fontSize: 8, marginTop: 2, textAlign: "center" },
-  tabRow: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 14, gap: 8 },
-  tabBtn: { flex: 1, paddingVertical: 9, borderRadius: 8, alignItems: "center", borderWidth: 1, borderColor: "transparent" },
-  tabText: { fontWeight: "700", fontSize: 12 },
+  bottomNavWrap: { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", backgroundColor: "rgba(10, 14, 26, 0.88)", borderTopWidth: 1, borderTopColor: "rgba(99, 102, 241, 0.2)", paddingTop: 8, paddingBottom: 20, paddingHorizontal: 4, shadowColor: "#000", shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 10 },
+  bottomNavItem: { flex: 1, alignItems: "center", paddingVertical: 6 },
+  bottomNavIcon: { fontSize: 20 },
+  bottomNavLabel: { fontSize: 9, fontWeight: "700", marginTop: 3, letterSpacing: 0.3 },
+  bottomNavIndicator: { position: "absolute", top: 0, width: 24, height: 3, borderRadius: 2, backgroundColor: "#06B6D4" },
+  toolCard: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 14, padding: 16, borderWidth: 1, marginBottom: 10 },
+  toolTitle: { fontSize: 14, fontWeight: "700" },
+  toolDesc: { fontSize: 11, marginTop: 2 },
   colHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
   dot: { width: 7, height: 7, borderRadius: 4 },
   colTitle: { fontSize: 12, fontWeight: "700" },
@@ -1635,9 +1618,9 @@ const styles = StyleSheet.create({
   radarRow: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, padding: 12, borderWidth: 1, marginBottom: 8 },
   radarRank: { width: 30, alignItems: "center" },
   radarRankText: { fontSize: 14, fontWeight: "800" },
-  quickBtn: { position: "absolute", bottom: 24, left: 20, borderWidth: 1, borderRadius: 24, paddingHorizontal: 16, paddingVertical: 12 },
+  quickBtn: { position: "absolute", bottom: 80, left: 20, borderWidth: 1, borderRadius: 24, paddingHorizontal: 16, paddingVertical: 12 },
   quickBtnText: { fontWeight: "700", fontSize: 12.5 },
-  fab: { position: "absolute", bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },
+  fab: { position: "absolute", bottom: 80, right: 20, width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },
   modalWrap: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.7)" },
   sheet: { width: "92%", maxHeight: "88%", borderRadius: 16, padding: 16, paddingBottom: 30 },
   sheetTall: { width: "92%", maxHeight: "88%", borderRadius: 16, padding: 16 },
