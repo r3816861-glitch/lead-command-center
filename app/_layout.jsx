@@ -1,7 +1,7 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
-import { LayoutGrid, Zap, Wrench, Users } from 'lucide-react-native';
+import { StyleSheet } from 'react-native';
+import { LayoutGrid, Zap, Wrench, Users, BookOpen } from 'lucide-react-native';
 
 export default function TabLayout() {
   return (
@@ -18,28 +18,35 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'War Room',
-          tabBarIcon: ({ color, size }) => <LayoutGrid size={size || 20} color={color} />,
+          tabBarIcon: ({ color, size }) => <LayoutGrid size={size || 18} color={color} />,
         }}
       />
       <Tabs.Screen
         name="actions"
         options={{
-          title: 'AI Actions',
-          tabBarIcon: ({ color, size }) => <Zap size={size || 20} color={color} />,
+          title: 'AI Radar',
+          tabBarIcon: ({ color, size }) => <Zap size={size || 18} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="vault"
+        options={{
+          title: 'Scripts',
+          tabBarIcon: ({ color, size }) => <BookOpen size={size || 18} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="leads"
+        options={{
+          title: 'Leads',
+          tabBarIcon: ({ color, size }) => <Users size={size || 18} color={color} />,
         }}
       />
       <Tabs.Screen
         name="tools"
         options={{
           title: 'Tools',
-          tabBarIcon: ({ color, size }) => <Wrench size={size || 20} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="leads"
-        options={{
-          title: 'All Leads',
-          tabBarIcon: ({ color, size }) => <Users size={size || 20} color={color} />,
+          tabBarIcon: ({ color, size }) => <Wrench size={size || 18} color={color} />,
         }}
       />
     </Tabs>
@@ -56,7 +63,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   label: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
   },
 });
