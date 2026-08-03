@@ -25,3 +25,4 @@
 {"_e":"expo:dev-tools-plugin:load","_t":1785777811605,"plugins":[]}
 {"_e":"metro:instantiate","_t":1785777821043,"atlas":false,"workers":3,"host":"::","port":8081}
 {"_e":"metro:bundling:started","_t":1785777821785,"id":"1","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
+{"_e":"metro:bundling:started","_t":1785777823336,"id":"2","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
