@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, Linking } from 'react-native';
-import { Phone, Plus, RefreshCw, MessageSquare, ShieldCheck } from 'lucide-react-native';
+import { Phone, Plus, RefreshCw, MessageSquare, CheckCircle2, Clock, XCircle, FileText } from 'lucide-react-native';
 import { loadLeads, saveLeads } from '../lib/storage';
 
 export default function WarRoomScreen() {
   const [leads, setLeads] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
+  const [callModalVisible, setCallModalVisible] = useState(false);
+  const [selectedLead, setSelectedLead] = useState(null);
   
+  // Add Lead Form State
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [amount, setAmount] = useState('');
@@ -48,13 +51,41 @@ export default function WarRoomScreen() {
     Alert.alert('Success', 'Lead Pipeline me add ho gayi!');
   };
 
+  const triggerCallFlow = (lead) => {
+    setSelectedLead(lead);
+    // Real dialing trigger
+    const phoneNumber = lead.phone.replace(/[^0-9]/g, '');
+    Linking.openURL(`tel:${phoneNumber}`).catch(() => {
+      Alert.alert('Dialer Error', 'Direct call dialer open nahi ho saka.');
+    });
+    // Open Post-Call Outcome Modal
+    setCallModalVisible(true);
+  };
+
+  const updateLeadStatus = async (newStatus) => {
+    if (!selectedLead) return;
+
+    const updatedLeads = leads.map((item) => {
+      if (item.id === selectedLead.id) {
+        return { ...item, status: newStatus };
+      }
+      return item;
+    });
+
+    setLeads(updatedLeads);
+    await saveLeads(updatedLeads);
+    setCallModalVisible(false);
+    setSelectedLead(null);
+    Alert.alert('Status Updated', `Lead status ab "${newStatus}" set ho gaya hai!`);
+  };
+
   const openWhatsApp = (phoneNumber, leadName, loanType) => {
     const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
     const message = `Hello ${leadName} ji, Bank of India / HSBC DSA Fast-Track Desk se Raj baat kar raha hu. Aapke ${loanType} file ke zero-processing fee aur rate drop clearance par baat karni thi. Kya hum 2 min connect kar sakte hain?`;
     const url = `whatsapp://send?phone=91${cleanPhone}&text=${encodeURIComponent(message)}`;
 
     Linking.openURL(url).catch(() => {
-      Alert.alert('WhatsApp Error', 'WhatsApp app aapke device par installed nahi hai ya link open nahi ho raha.');
+      Alert.alert('WhatsApp Error', 'WhatsApp app installed nahi hai.');
     });
   };
 
@@ -84,21 +115,21 @@ export default function WarRoomScreen() {
         </View>
         <View style={styles.divider} />
         <View style={styles.statCol}>
-          <Text style={styles.statNumber}>{leads.filter(l => l.status !== 'Fresh Lead').length}</Text>
-          <Text style={styles.statLabel}>In Pipeline</Text>
+          <Text style={styles.statNumber}>{leads.filter(l => l.status === 'Doc Pickup' || l.status === 'Hot BT').length}</Text>
+          <Text style={styles.statLabel}>Hot Conversions</Text>
         </View>
       </View>
 
-      {/* Queue Title */}
+      {/* Queue Header */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>🔥 Active Dialing Queue</Text>
+        <Text style={styles.sectionTitle}>🔥 Active Calling Queue</Text>
         <TouchableOpacity style={styles.addBtn} onPress={() => setModalVisible(true)}>
           <Plus size={16} color="#0A0E1A" />
           <Text style={styles.addBtnText}>Add Lead</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Lead Cards List */}
+      {/* Lead Stream */}
       <FlatList
         data={leads}
         keyExtractor={(item) => item.id}
@@ -123,7 +154,7 @@ export default function WarRoomScreen() {
 
               <TouchableOpacity 
                 style={styles.callActionBtn} 
-                onPress={() => Alert.alert('Dialing', `${item.name} (${item.phone}) ko call lag raha hai...`)}
+                onPress={() => triggerCallFlow(item)}
               >
                 <Phone size={16} color="#FFF" />
               </TouchableOpacity>
@@ -132,7 +163,7 @@ export default function WarRoomScreen() {
         )}
       />
 
-      {/* Modal: Add Lead */}
+      {/* Modal 1: Quick Lead Add */}
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
@@ -171,6 +202,42 @@ export default function WarRoomScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Modal 2: Post-Call Outcome Logger */}
+      <Modal visible={callModalVisible} transparent animationType="fade">
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>📞 Post-Call Log Outcome</Text>
+            <Text style={{ color: '#94A3B8', fontSize: 12, marginBottom: 16 }}>
+              {selectedLead ? `Customer: ${selectedLead.name} (${selectedLead.phone})` : 'Select Outcome'}
+            </Text>
+
+            <TouchableOpacity style={styles.outcomeOption} onPress={() => updateLeadStatus('Doc Pickup')}>
+              <FileText size={18} color="#10B981" />
+              <Text style={styles.outcomeText}>Doc Pickup Scheduled</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.outcomeOption} onPress={() => updateLeadStatus('Hot BT')}>
+              <CheckCircle2 size={18} color="#00E5FF" />
+              <Text style={styles.outcomeText}>Hot Interest / Rate Agreed</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.outcomeOption} onPress={() => updateLeadStatus('Callback')}>
+              <Clock size={18} color="#F59E0B" />
+              <Text style={styles.outcomeText}>Callback Later / Busy</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.outcomeOption} onPress={() => updateLeadStatus('Rejected')}>
+              <XCircle size={18} color="#EF4444" />
+              <Text style={styles.outcomeText}>Not Interested / Rate Too High</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.cancelBtn, { marginTop: 10, alignSelf: 'center' }]} onPress={() => setCallModalVisible(false)}>
+              <Text style={styles.cancelText}>Skip Outcome</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -199,13 +266,15 @@ const styles = StyleSheet.create({
   actionsRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   waActionBtn: { backgroundColor: '#1E293B', padding: 10, borderRadius: 20, borderWidth: 1, borderColor: '#10B981' },
   callActionBtn: { backgroundColor: '#10B981', padding: 10, borderRadius: 20 },
-  modalContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 20 },
+  modalContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#0F172A', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#00E5FF' },
-  modalTitle: { color: '#00E5FF', fontSize: 18, fontWeight: '700', marginBottom: 16 },
+  modalTitle: { color: '#00E5FF', fontSize: 18, fontWeight: '700' },
   input: { backgroundColor: '#1E293B', color: '#FFF', padding: 12, borderRadius: 8, marginBottom: 12, borderWidth: 1, borderColor: '#334155' },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 8 },
   cancelBtn: { padding: 10 },
   cancelText: { color: '#94A3B8', fontWeight: '600' },
   saveBtn: { backgroundColor: '#00E5FF', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 6 },
-  saveText: { color: '#0A0E1A', fontWeight: '700' }
+  saveText: { color: '#0A0E1A', fontWeight: '700' },
+  outcomeOption: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E293B', padding: 12, borderRadius: 8, marginBottom: 10, gap: 10, borderWidth: 1, borderColor: '#334155' },
+  outcomeText: { color: '#FFF', fontSize: 13, fontWeight: '600' }
 });
