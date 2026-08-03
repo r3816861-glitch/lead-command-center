@@ -113,6 +113,7 @@ export default function App() {
   const [form, setForm] = useState(emptyForm);
   const [detailId, setDetailId] = useState(null);
   const [filterPill, setFilterPill] = useState("all");
+  const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [pipelineStage, setPipelineStage] = useState("all");
   const [showSettings, setShowSettings] = useState(false);
@@ -432,40 +433,41 @@ export default function App() {
             </View>
           </View>
 
-          {/* Search Bar */}
-          <View style={[styles.searchBar, { backgroundColor: C.card2, borderColor: C.border }]}>
-            <Text style={{ fontSize: 14, color: C.textMute }}>🔍</Text>
-            <TextInput
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Name, phone, bank, location..."
-              placeholderTextColor={C.textMute}
-              style={[styles.searchInput, { color: C.text }]}
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery("")}>
-                <Text style={{ color: C.textMute, fontSize: 16 }}>✕</Text>
-              </TouchableOpacity>
-            )}
+          {/* Search Bar + Filter Button */}
+          <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+            <View style={[styles.searchBar, { backgroundColor: C.card2, borderColor: C.border, flex: 1 }]}>
+              <Text style={{ fontSize: 14, color: C.textMute }}>🔍</Text>
+              <TextInput
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Name, phone, bank, location..."
+                placeholderTextColor={C.textMute}
+                style={[styles.searchInput, { color: C.text }]}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery("")}>
+                  <Text style={{ color: C.textMute, fontSize: 16 }}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <TouchableOpacity
+              onPress={() => setShowFilters(true)}
+              style={[styles.filterBtn, {
+                backgroundColor: (filterPill !== "all" || pipelineStage !== "all") ? C.indigo + "22" : C.card2,
+                borderColor: (filterPill !== "all" || pipelineStage !== "all") ? C.indigo : C.border,
+              }]}
+            >
+              <Text style={{ fontSize: 14, color: (filterPill !== "all" || pipelineStage !== "all") ? C.indigo : C.textDim }}>⚙</Text>
+              <Text style={[styles.filterBtnText, { color: (filterPill !== "all" || pipelineStage !== "all") ? C.indigo : C.textDim }]}>Filters</Text>
+              {(filterPill !== "all" || pipelineStage !== "all") && (
+                <View style={[styles.filterBadge, { backgroundColor: C.indigo }]}>
+                  <Text style={{ color: "#fff", fontSize: 8, fontWeight: "800" }}>
+                    {[filterPill !== "all", pipelineStage !== "all"].filter(Boolean).length}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
           </View>
-
-          {/* Filter Pills */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginTop: 10 }}>
-            {FILTER_PILLS.map((p) => (
-              <TouchableOpacity
-                key={p.key}
-                onPress={() => setFilterPill(p.key)}
-                style={[styles.filterPill, {
-                  backgroundColor: filterPill === p.key ? C.indigo : C.card2,
-                  borderColor: filterPill === p.key ? C.indigo : C.border,
-                }]}
-              >
-                <Text style={[styles.filterPillText, { color: filterPill === p.key ? "#fff" : C.textDim }]}>
-                  {p.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
 
           {/* ============================== AAJ KE CALLS (DAILY QUEUE) ============================== */}
           {todayCalls.length > 0 && (
@@ -528,30 +530,6 @@ export default function App() {
         {/* ============================== WAR ROOM (PIPELINE TRACKER) ============================== */}
         {tab === "warroom" && (
           <View style={{ marginTop: 12 }}>
-            {/* Stage filter chips */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingBottom: 10 }}>
-              <TouchableOpacity
-                onPress={() => setPipelineStage("all")}
-                style={[styles.filterPill, { backgroundColor: pipelineStage === "all" ? C.indigo : C.card2, borderColor: pipelineStage === "all" ? C.indigo : C.border }]}
-              >
-                <Text style={[styles.filterPillText, { color: pipelineStage === "all" ? "#fff" : C.textDim }]}>All Stages</Text>
-              </TouchableOpacity>
-              {PIPELINE_STAGES.map((s) => (
-                <TouchableOpacity
-                  key={s.key}
-                  onPress={() => setPipelineStage(s.key)}
-                  style={[styles.filterPill, {
-                    backgroundColor: pipelineStage === s.key ? s.color : C.card2,
-                    borderColor: pipelineStage === s.key ? s.color : C.border,
-                  }]}
-                >
-                  <Text style={[styles.filterPillText, { color: pipelineStage === s.key ? "#fff" : C.textDim }]}>
-                    {s.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
             {/* Horizontal pipeline columns */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}>
               {(pipelineStage === "all" ? PIPELINE_STAGES : PIPELINE_STAGES.filter((s) => s.key === pipelineStage)).map((stage) => {
@@ -1027,15 +1005,80 @@ export default function App() {
             <TouchableOpacity onPress={saveSettingsHandler} style={[styles.primaryBtn, { backgroundColor: C.indigo }]}>
               <Text style={styles.primaryBtnText}>Save</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              onPress={scheduleTestNotification}
-              style={[styles.primaryBtn, { backgroundColor: C.cyan, marginTop: 10 }]}
-            >
-              <Text style={styles.primaryBtnText}>Test 5s Notification</Text>
-            </TouchableOpacity>
           </View>
           </KeyboardAvoidingView>
         </View>
+      </Modal>
+
+      {/* ============================== FILTER MODAL ============================== */}
+      <Modal visible={showFilters} animationType="slide" transparent={true} onRequestClose={() => setShowFilters(false)}>
+        <TouchableOpacity activeOpacity={1} onPress={() => setShowFilters(false)} style={styles.modalOverlay}>
+          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation? e.stopPropagation(): null} style={[styles.filterModal, { backgroundColor: C.card, borderColor: C.border }]}>
+            <View style={styles.filterModalHeader}>
+              <Text style={[styles.filterModalTitle, { color: C.text }]}>Filters</Text>
+              <TouchableOpacity onPress={() => setShowFilters(false)}>
+                <Text style={{ color: C.textMute, fontSize: 18 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.filterSectionLabel, { color: C.textDim }]}>LEAD TYPE</Text>
+            <View style={styles.filterChipGrid}>
+              {FILTER_PILLS.map((p) => (
+                <TouchableOpacity
+                  key={p.key}
+                  onPress={() => setFilterPill(p.key)}
+                  style={[styles.filterPill, {
+                    backgroundColor: filterPill === p.key ? C.indigo : C.card2,
+                    borderColor: filterPill === p.key ? C.indigo : C.border,
+                  }]}
+                >
+                  <Text style={[styles.filterPillText, { color: filterPill === p.key ? "#fff" : C.textDim }]}>
+                    {p.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={[styles.filterSectionLabel, { color: C.textDim, marginTop: 16 }]}>PIPELINE STAGE</Text>
+            <View style={styles.filterChipGrid}>
+              <TouchableOpacity
+                onPress={() => setPipelineStage("all")}
+                style={[styles.filterPill, { backgroundColor: pipelineStage === "all" ? C.indigo : C.card2, borderColor: pipelineStage === "all" ? C.indigo : C.border }]}
+              >
+                <Text style={[styles.filterPillText, { color: pipelineStage === "all" ? "#fff" : C.textDim }]}>All Stages</Text>
+              </TouchableOpacity>
+              {PIPELINE_STAGES.map((s) => (
+                <TouchableOpacity
+                  key={s.key}
+                  onPress={() => setPipelineStage(s.key)}
+                  style={[styles.filterPill, {
+                    backgroundColor: pipelineStage === s.key ? s.color : C.card2,
+                    borderColor: pipelineStage === s.key ? s.color : C.border,
+                  }]}
+                >
+                  <Text style={[styles.filterPillText, { color: pipelineStage === s.key ? "#fff" : C.textDim }]}>
+                    {s.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 20 }}>
+              <TouchableOpacity
+                onPress={() => { setFilterPill("all"); setPipelineStage("all"); }}
+                style={[styles.primaryBtn, { backgroundColor: C.card2, borderColor: C.border, borderWidth: 1, flex: 1 }]}
+              >
+                <Text style={[styles.primaryBtnText, { color: C.textDim }]}>Reset All</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setShowFilters(false)}
+                style={[styles.primaryBtn, { backgroundColor: C.indigo, flex: 1 }]}
+              >
+                <Text style={styles.primaryBtnText}>Apply</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
     </SafeAreaView>
   );
@@ -1566,6 +1609,14 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 13 },
   filterPill: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 1 },
   filterPillText: { fontSize: 11, fontWeight: "600" },
+  filterBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, borderWidth: 1 },
+  filterBtnText: { fontSize: 12, fontWeight: "700" },
+  filterBadge: { minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 4, alignItems: "center", justifyContent: "center", marginLeft: 2 },
+  filterModal: { width: "92%", maxWidth: 400, borderRadius: 18, borderWidth: 1, padding: 20, maxHeight: "80%" },
+  filterModalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
+  filterModalTitle: { fontSize: 18, fontWeight: "800" },
+  filterSectionLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 1, marginBottom: 8 },
+  filterChipGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   earnBox: { marginTop: 14, borderRadius: 14, padding: 14, borderWidth: 1 },
   dailyQueueBox: { marginTop: 14, marginBottom: 4, borderRadius: 14, padding: 12, borderWidth: 1 },
   dailyQueueHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
@@ -1622,6 +1673,7 @@ const styles = StyleSheet.create({
   quickBtnText: { fontWeight: "700", fontSize: 12.5 },
   fab: { position: "absolute", bottom: 80, right: 20, width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },
   modalWrap: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.7)" },
+  modalOverlay: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.7)" },
   sheet: { width: "92%", maxHeight: "88%", borderRadius: 16, padding: 16, paddingBottom: 30 },
   sheetTall: { width: "92%", maxHeight: "88%", borderRadius: 16, padding: 16 },
   sheetHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },

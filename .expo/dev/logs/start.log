@@ -10,3 +10,10 @@
 {"_e":"metro:client_log","_t":1785777257066,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
 {"_e":"metro:client_log","_t":1785777257103,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
 {"_e":"metro:client_log","_t":1785777257111,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:bundling:started","_t":1785777559838,"id":"2","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
+{"_e":"metro:bundling:started","_t":1785777559848,"id":"3","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
+{"_e":"metro:bundling:done","_t":1785777563096,"id":"2","total":1,"ms":3257.49}
+{"_e":"metro:bundling:done","_t":1785777563904,"id":"3","total":1,"ms":4055.165}
+{"_e":"metro:client_log","_t":1785777564264,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1785777564302,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1785777564311,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
