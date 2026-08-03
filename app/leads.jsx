@@ -1,54 +1,80 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity } from 'react-native';
-import { Search, Phone, Filter } from 'lucide-react-native';
-
-const INITIAL_LEADS = [
-  { id: '1', name: 'Ramesh Sharma', type: 'LAP BT', status: 'Follow-up', phone: '9876543210', amount: '₹45 Lakhs' },
-  { id: '2', name: 'Vikram Mehta', type: 'Home Loan', status: 'Fresh Lead', phone: '9811223344', amount: '₹80 Lakhs' },
-  { id: '3', name: 'Anil Gupta', type: 'MSME Loan', status: 'Doc Pickup', phone: '9900112233', amount: '₹25 Lakhs' },
-  { id: '4', name: 'Sanjay Verma', type: 'Personal BT', status: 'Sanctioned', phone: '9711002288', amount: '₹12 Lakhs' },
-];
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, Linking, Alert } from 'react-native';
+import { Search, Phone, MessageSquare } from 'lucide-react-native';
+import { loadLeads } from '../lib/storage';
 
 export default function LeadsScreen() {
   const [search, setSearch] = useState('');
+  const [leads, setLeads] = useState([]);
 
-  const filteredLeads = INITIAL_LEADS.filter(lead => 
+  useEffect(() => {
+    const fetchLeads = async () => {
+      const data = await loadLeads();
+      setLeads(data);
+    };
+    fetchLeads();
+  }, []);
+
+  const filteredLeads = leads.filter(lead => 
     lead.name.toLowerCase().includes(search.toLowerCase()) || 
-    lead.type.toLowerCase().includes(search.toLowerCase())
+    lead.type.toLowerCase().includes(search.toLowerCase()) ||
+    lead.amount.toLowerCase().includes(search.toLowerCase())
   );
+
+  const openWhatsApp = (phoneNumber, leadName, loanType) => {
+    const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    const message = `Hello ${leadName} ji, Bank of India / HSBC DSA Fast-Track Desk se Raj baat kar raha hu. Aapke ${loanType} file ke zero-processing fee aur rate drop clearance par baat karni thi. Kya hum 2 min connect kar sakte hain?`;
+    const url = `whatsapp://send?phone=91${cleanPhone}&text=${encodeURIComponent(message)}`;
+
+    Linking.openURL(url).catch(() => {
+      Alert.alert('WhatsApp Error', 'WhatsApp app installed nahi hai.');
+    });
+  };
 
   return (
     <View style={styles.container}>
       <Text style={styles.headerTitle}>📂 Master Pipeline (All Leads)</Text>
 
-      {/* Search Bar */}
       <View style={styles.searchContainer}>
         <Search size={18} color="#94A3B8" />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search lead by name, type, amount..."
+          placeholder="Search by name, type (LAP, Home Loan)..."
           placeholderTextColor="#64748B"
           value={search}
           onChangeText={setSearch}
         />
       </View>
 
-      {/* Leads List */}
       <FlatList
         data={filteredLeads}
         keyExtractor={item => item.id}
+        contentContainerStyle={{ paddingBottom: 80 }}
         renderItem={({ item }) => (
           <View style={styles.leadCard}>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.name}>{item.name}</Text>
               <Text style={styles.subText}>{item.type} • {item.amount}</Text>
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{item.status}</Text>
               </View>
             </View>
-            <TouchableOpacity style={styles.callIcon}>
-              <Phone size={18} color="#00E5FF" />
-            </TouchableOpacity>
+
+            <View style={styles.actionsRow}>
+              <TouchableOpacity 
+                style={styles.waIcon} 
+                onPress={() => openWhatsApp(item.phone, item.name, item.type)}
+              >
+                <MessageSquare size={16} color="#10B981" />
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.callIcon}
+                onPress={() => Alert.alert('Dialing', `${item.name} ko call ja raha hai...`)}
+              >
+                <Phone size={16} color="#00E5FF" />
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       />
@@ -66,5 +92,7 @@ const styles = StyleSheet.create({
   subText: { color: '#94A3B8', fontSize: 12, marginTop: 2 },
   badge: { backgroundColor: 'rgba(0, 229, 255, 0.15)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start', marginTop: 6 },
   badgeText: { color: '#00E5FF', fontSize: 10, fontWeight: '600' },
+  actionsRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  waIcon: { backgroundColor: '#1E293B', padding: 10, borderRadius: 20, borderWidth: 1, borderColor: '#10B981' },
   callIcon: { backgroundColor: '#1E293B', padding: 10, borderRadius: 20, borderWidth: 1, borderColor: '#00E5FF' }
 });
