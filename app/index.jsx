@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, FlatList, Modal, TextInput, Alert } from 'react-native';
-import { Phone, Plus, Filter, RefreshCw, Zap } from 'lucide-react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, Linking } from 'react-native';
+import { Phone, Plus, RefreshCw, MessageSquare, ShieldCheck } from 'lucide-react-native';
 import { loadLeads, saveLeads } from '../lib/storage';
 
 export default function WarRoomScreen() {
   const [leads, setLeads] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   
-  // New Lead Form State
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [amount, setAmount] = useState('');
@@ -24,7 +23,7 @@ export default function WarRoomScreen() {
 
   const handleAddLead = async () => {
     if (!name.trim() || !phone.trim()) {
-      Alert.alert('Error', 'Lead name aur phone number zaroori hai!');
+      Alert.alert('Error', 'Name aur Phone required hain!');
       return;
     }
 
@@ -35,24 +34,33 @@ export default function WarRoomScreen() {
       amount: amount.trim() ? `₹${amount.trim()} Lakhs` : '₹25 Lakhs',
       type: type,
       status: 'Fresh Lead',
-      notes: 'New cold calling lead'
+      notes: 'Direct Cold Call'
     };
 
     const updatedLeads = [newLead, ...leads];
     setLeads(updatedLeads);
     await saveLeads(updatedLeads);
 
-    // Reset Form
     setName('');
     setPhone('');
     setAmount('');
     setModalVisible(false);
-    Alert.alert('Success', 'Nayi lead War Room pipeline me add ho gayi!');
+    Alert.alert('Success', 'Lead Pipeline me add ho gayi!');
+  };
+
+  const openWhatsApp = (phoneNumber, leadName, loanType) => {
+    const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    const message = `Hello ${leadName} ji, Bank of India / HSBC DSA Fast-Track Desk se Raj baat kar raha hu. Aapke ${loanType} file ke zero-processing fee aur rate drop clearance par baat karni thi. Kya hum 2 min connect kar sakte hain?`;
+    const url = `whatsapp://send?phone=91${cleanPhone}&text=${encodeURIComponent(message)}`;
+
+    Linking.openURL(url).catch(() => {
+      Alert.alert('WhatsApp Error', 'WhatsApp app aapke device par installed nahi hai ya link open nahi ho raha.');
+    });
   };
 
   return (
     <View style={styles.container}>
-      {/* War Room Header */}
+      {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.headerSubtitle}>RAJ - SALES WAR ROOM</Text>
@@ -63,37 +71,34 @@ export default function WarRoomScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Quick Pipeline Stats */}
+      {/* Quick Stats */}
       <View style={styles.statsCard}>
         <View style={styles.statCol}>
           <Text style={styles.statNumber}>{leads.length}</Text>
-          <Text style={styles.statLabel}>Total Leads</Text>
+          <Text style={styles.statLabel}>Total Queue</Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.statCol}>
-          <Text style={styles.statNumber}>
-            {leads.filter(l => l.status === 'Fresh Lead').length}
-          </Text>
+          <Text style={styles.statNumber}>{leads.filter(l => l.status === 'Fresh Lead').length}</Text>
           <Text style={styles.statLabel}>Fresh Calls</Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.statCol}>
-          <Text style={styles.statNumber}>
-            {leads.filter(l => l.status === 'Follow-up' || l.status === 'Doc Pickup').length}
-          </Text>
-          <Text style={styles.statLabel}>Hot BT / LAP</Text>
+          <Text style={styles.statNumber}>{leads.filter(l => l.status !== 'Fresh Lead').length}</Text>
+          <Text style={styles.statLabel}>In Pipeline</Text>
         </View>
       </View>
 
-      {/* Main Leads Stream */}
+      {/* Queue Title */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>🔥 Active War Room Queue</Text>
+        <Text style={styles.sectionTitle}>🔥 Active Dialing Queue</Text>
         <TouchableOpacity style={styles.addBtn} onPress={() => setModalVisible(true)}>
           <Plus size={16} color="#0A0E1A" />
           <Text style={styles.addBtnText}>Add Lead</Text>
         </TouchableOpacity>
       </View>
 
+      {/* Lead Cards List */}
       <FlatList
         data={leads}
         keyExtractor={(item) => item.id}
@@ -108,22 +113,30 @@ export default function WarRoomScreen() {
               </View>
             </View>
 
-            <TouchableOpacity 
-              style={styles.callActionBtn} 
-              onPress={() => Alert.alert('Dialing', `${item.name} (${item.phone}) ko call lag raha hai...`)}
-            >
-              <Phone size={16} color="#FFF" />
-            </TouchableOpacity>
+            <View style={styles.actionsRow}>
+              <TouchableOpacity 
+                style={styles.waActionBtn} 
+                onPress={() => openWhatsApp(item.phone, item.name, item.type)}
+              >
+                <MessageSquare size={16} color="#10B981" />
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.callActionBtn} 
+                onPress={() => Alert.alert('Dialing', `${item.name} (${item.phone}) ko call lag raha hai...`)}
+              >
+                <Phone size={16} color="#FFF" />
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       />
 
-      {/* Modal: Quick Add Lead */}
+      {/* Modal: Add Lead */}
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>⚡ Add New Lead</Text>
-
+            <Text style={styles.modalTitle}>⚡ Quick Lead Add</Text>
             <TextInput
               style={styles.input}
               placeholder="Customer Name"
@@ -141,13 +154,12 @@ export default function WarRoomScreen() {
             />
             <TextInput
               style={styles.input}
-              placeholder="Loan Amount in Lakhs (e.g. 50)"
+              placeholder="Amount in Lakhs (e.g. 45)"
               placeholderTextColor="#64748B"
               keyboardType="numeric"
               value={amount}
               onChangeText={setAmount}
             />
-
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setModalVisible(false)}>
                 <Text style={styles.cancelText}>Cancel</Text>
@@ -184,6 +196,8 @@ const styles = StyleSheet.create({
   leadMeta: { color: '#94A3B8', fontSize: 12, marginTop: 2 },
   badge: { backgroundColor: 'rgba(0, 229, 255, 0.15)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start', marginTop: 6 },
   badgeText: { color: '#00E5FF', fontSize: 10, fontWeight: '600' },
+  actionsRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  waActionBtn: { backgroundColor: '#1E293B', padding: 10, borderRadius: 20, borderWidth: 1, borderColor: '#10B981' },
   callActionBtn: { backgroundColor: '#10B981', padding: 10, borderRadius: 20 },
   modalContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#0F172A', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#00E5FF' },
