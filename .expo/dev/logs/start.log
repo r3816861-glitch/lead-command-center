@@ -26,3 +26,5 @@
 {"_e":"metro:instantiate","_t":1785777821043,"atlas":false,"workers":3,"host":"::","port":8081}
 {"_e":"metro:bundling:started","_t":1785777821785,"id":"1","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
 {"_e":"metro:bundling:started","_t":1785777823336,"id":"2","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
+{"_e":"metro:bundling:done","_t":1785777824560,"id":"1","total":939,"ms":2774.095}
+{"_e":"metro:bundling:done","_t":1785777825347,"id":"2","total":1,"ms":2010.76}
