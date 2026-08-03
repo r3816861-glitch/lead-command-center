@@ -1,34 +1,46 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
-import { Zap, Phone, Shield, Copy } from 'lucide-react-native';
+import { Zap, Phone, Shield, Copy, CheckCircle } from 'lucide-react-native';
 
 export default function AiActionsScreen() {
   const [objection, setObjection] = useState('');
   const [pitch, setPitch] = useState('');
+  const [copied, setCopied] = useState(false);
 
   const generateCounter = () => {
     if (!objection.trim()) return;
     
-    // Core objection mapping for financial loans
     const input = objection.toLowerCase();
     let res = "";
 
     if (input.includes("rate") || input.includes("byaj") || input.includes("interest")) {
-      res = "Sir, rate difference 0.25% ho sakta hai, lekin hamara Zero Processing Fee aur No Hidden Foreclosure offer cash flow me aapko net ₹45,000 save karke dega. Exact calculation dikhau?";
+      res = "Sir, 0.20% rate difference par mat jaiye. Naye bank me processing fee, legal charges aur valuation milakar ₹35,000 extra lagega. Hamara offer Zero Hidden Fee ke sath net saving de raha hai. Calculation bheju?";
     } else if (input.includes("soch") || input.includes("time") || input.includes("baad")) {
-      res = "Bilkul sir, sochne ka time lijiye. Lekin ye 8.35% LAP BT rate bracket sirf is weekend tak valid hai. Doc pickup aaj schedule karein taaki rate lock ho jaye?";
+      res = "Bilkul sir, sochiye. Lekin 8.35% LAP BT rate bracket aur Waiver Scheme sirf pichle month-end targets tak valid hain. Documents aaj pickup karwau taaki rate freeze ho jaye?";
+    } else if (input.includes("whatsapp") || input.includes("message") || input.includes("quote")) {
+      res = "Sir, generic WhatsApp quote ka koi fayda nahi. 2 min me aapki eligibility check karke exact net-disbursement amount calculate kar deta hu. CIBIL login bina kisi score impact ke hoga. Start karein?";
+    } else if (input.includes("fee") || input.includes("charge") || input.includes("cost")) {
+      res = "Sir, hum upfront ₹1 bhi nahi lete. Pure file processing me processing fee waive off hai, sirf disbursement ke baad bank-to-bank official deduction hota hai. Safe deal hai, login karein?";
     } else {
-      res = "Sir, aapki concern genuine hai. Par Fast-Track DSA portal se login hoga toh 72 hours me direct bank disbursement milega, koi multiple bank chakkarmukh nahi. File processing start karein?";
+      res = "Sir, aapki concern bilkul sahi hai. DSA Fast-Track portal se login hoga toh bina branch ke multiple rounds ke 72 hours me direct approval milega. Documents kab arrange karein?";
     }
 
     setPitch(res);
+    setCopied(false);
+  };
+
+  const copyToClipboard = () => {
+    if (!pitch) return;
+    setCopied(true);
+    Alert.alert('Script Copied!', 'Pitch clipboard me copy ho gayi hai.');
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.headerTitle}>⚡ AI Lead Radar & Pitch Engine</Text>
+      <Text style={styles.headerTitle}>⚡ Sales War Room - Pitch Engine</Text>
 
-      {/* AI Lead Scoring */}
+      {/* Priority Scoring */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>🔥 Priority Lead Scoring</Text>
 
@@ -55,13 +67,13 @@ export default function AiActionsScreen() {
         </View>
       </View>
 
-      {/* Pitch Generator */}
+      {/* Objection Generator */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>🛡️ Instant Objection Counter</Text>
+        <Text style={styles.cardTitle}>🛡️ Live Objection Handling Scripts</Text>
         
         <TextInput
           style={styles.input}
-          placeholder="Type objection (e.g., Rate zyada hai, Soch ke bataunga)..."
+          placeholder="Type objection (e.g., Rate high hai, WhatsApp pe bhejo, Soch ke bataunga)..."
           placeholderTextColor="#64748B"
           value={objection}
           onChangeText={setObjection}
@@ -75,6 +87,10 @@ export default function AiActionsScreen() {
         {pitch !== '' && (
           <View style={styles.pitchBox}>
             <Text style={styles.pitchText}>{pitch}</Text>
+            <TouchableOpacity style={styles.copyBtn} onPress={copyToClipboard}>
+              {copied ? <CheckCircle size={16} color="#10B981" /> : <Copy size={16} color="#00E5FF" />}
+              <Text style={styles.copyText}>{copied ? 'Copied' : 'Copy Pitch'}</Text>
+            </TouchableOpacity>
           </View>
         )}
       </View>
@@ -96,5 +112,7 @@ const styles = StyleSheet.create({
   actionBtn: { flexDirection: 'row', backgroundColor: '#1E293B', borderColor: '#00E5FF', borderWidth: 1, padding: 12, borderRadius: 8, justifyContent: 'center', alignItems: 'center', gap: 8 },
   actionBtnText: { color: '#00E5FF', fontWeight: '600', fontSize: 13 },
   pitchBox: { backgroundColor: 'rgba(0, 229, 255, 0.1)', padding: 12, borderRadius: 8, marginTop: 12, borderWidth: 1, borderColor: '#00E5FF' },
-  pitchText: { color: '#E2E8F0', fontSize: 13, lineHeight: 18 }
+  pitchText: { color: '#E2E8F0', fontSize: 13, lineHeight: 18 },
+  copyBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, alignSelf: 'flex-end' },
+  copyText: { color: '#00E5FF', fontSize: 12, fontWeight: '600' }
 });
