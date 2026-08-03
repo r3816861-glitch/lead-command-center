@@ -120,21 +120,32 @@ export default function App() {
   const [settingsDraft, setSettingsDraft] = useState(DEFAULT_SETTINGS);
 
   useEffect(() => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; setLoading(false); } };
     (async () => {
-      const s = await loadSettings(DEFAULT_SETTINGS);
-      setSettings(s);
-      setSettingsDraft(s);
-      const l = await loadLeads();
-      setLeads(l);
-      setLoading(false);
-      if (Platform.OS !== "web") {
-        await setupAndroidChannel();
-        await ensureNotificationsPermission();
-        await rescheduleAllNotifications(l);
-      } else if (typeof Notification !== "undefined" && Notification.requestPermission) {
-        try { await Notification.requestPermission(); } catch (e) {}
+      try {
+        const [s, l] = await Promise.all([
+          loadSettings(DEFAULT_SETTINGS),
+          loadLeads(),
+        ]);
+        setSettings(s);
+        setSettingsDraft(s);
+        setLeads(l);
+        if (Platform.OS !== "web") {
+          await setupAndroidChannel();
+          await ensureNotificationsPermission();
+          await rescheduleAllNotifications(l);
+        } else if (typeof Notification !== "undefined" && Notification.requestPermission) {
+          try { await Notification.requestPermission(); } catch (e) {}
+        }
+      } catch (e) {
+        // ignore — render with empty data
+      } finally {
+        finish();
       }
     })();
+    const t = setTimeout(finish, 3000);
+    return () => clearTimeout(t);
   }, []);
 
   // Web background notification timer — checks every 30 seconds for leads
