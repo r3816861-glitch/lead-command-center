@@ -1,22 +1,62 @@
-import { Stack } from "expo-router";
-import { StatusBar } from "expo-status-bar";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { Tabs } from 'expo-router';
+import React from 'react';
+import { View, StyleSheet } from 'react-native';
+import { LayoutGrid, Zap, Wrench, Users } from 'lucide-react-native';
 
-// Obsidian glassmorphism root: deep near-black background so the app's
-// dark mode blends seamlessly with the system status bar, and light
-// mode still gets a controlled base before index.jsx takes over.
-export default function RootLayout() {
+export default function TabLayout() {
   return (
-    <SafeAreaProvider>
-      <StatusBar style="light" translucent={true} />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: "#0A0E1A" },
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: '#00E5FF',
+        tabBarInactiveTintColor: '#64748B',
+        tabBarStyle: styles.tabBar,
+        tabBarLabelStyle: styles.label,
+      }}
+    >
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'War Room',
+          tabBarIcon: ({ color, size }) => <LayoutGrid size={size || 20} color={color} />,
         }}
-      >
-        <Stack.Screen name="index" />
-      </Stack>
-    </SafeAreaProvider>
+      />
+      <Tabs.Screen
+        name="actions"
+        options={{
+          title: 'AI Actions',
+          tabBarIcon: ({ color, size }) => <Zap size={size || 20} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="tools"
+        options={{
+          title: 'Tools',
+          tabBarIcon: ({ color, size }) => <Wrench size={size || 20} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="leads"
+        options={{
+          title: 'All Leads',
+          tabBarIcon: ({ color, size }) => <Users size={size || 20} color={color} />,
+        }}
+      />
+    </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  tabBar: {
+    backgroundColor: '#0A0E1A',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    height: 60,
+    paddingBottom: 8,
+    paddingTop: 8,
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+});
