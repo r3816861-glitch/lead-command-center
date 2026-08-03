@@ -5,3 +5,4 @@
 {"_e":"metro:config","_t":1785777207443,"serverRoot":"../../..","projectRoot":"../../..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
 {"_e":"expo:dev-tools-plugin:load","_t":1785777207925,"plugins":[]}
 {"_e":"metro:instantiate","_t":1785777218863,"atlas":false,"workers":3,"host":"::","port":8081}
+{"_e":"metro:bundling:started","_t":1785777221398,"id":"1","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
