@@ -1,9 +1,9 @@
-import { sendAutomatedWhatsApp } from '../lib/whatsapp';
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, Linking } from 'react-native';
 import { Phone, MessageSquare, Plus, RefreshCw, CheckCircle, Clock, XCircle, FileCheck } from 'lucide-react-native';
 import { loadLeads, saveLeads } from '../lib/storage';
 import { scheduleLeadReminder } from '../lib/notifications';
+import { sendAutomatedWhatsApp } from '../lib/whatsapp';
 
 export default function WarRoomScreen() {
   const [leads, setLeads] = useState([]);
@@ -27,7 +27,14 @@ export default function WarRoomScreen() {
     setLeads(data);
   };
 
- const updateOutcome = async (newStatus) => {
+  const handleCallAction = (lead) => {
+    setSelectedLead(lead);
+    const cleanPhone = lead.phone.replace(/[^0-9]/g, '');
+    Linking.openURL(`tel:${cleanPhone}`).catch(() => Alert.alert('Error', 'Dialer open nahi ho saka.'));
+    setModalVisible(true);
+  };
+
+  const updateOutcome = async (newStatus) => {
     const updated = leads.map((item) => {
       if (item.id === selectedLead.id) {
         return { ...item, status: newStatus, notes: note || item.notes };
@@ -49,14 +56,6 @@ export default function WarRoomScreen() {
       scheduleLeadReminder(selectedLead.name, selectedLead.type, 30);
     }
   };
-    setLeads(updated);
-    setModalVisible(false);
-    setNote('');
-
-    if (newStatus === 'Follow-Up') {
-      scheduleLeadReminder(selectedLead.name, selectedLead.type, 30);
-    }
-  };
 
   const handleAddLead = async () => {
     if (!newName || !newPhone) {
@@ -68,7 +67,7 @@ export default function WarRoomScreen() {
       id: Date.now().toString(),
       name: newName,
       type: newType,
-      amount: newAmount ? `₹${newAmount} Laths` : '₹25 Laths',
+      amount: newAmount ? `₹${newAmount} Lakhs` : '₹25 Lakhs',
       phone: newPhone,
       status: 'Fresh Lead'
     };
