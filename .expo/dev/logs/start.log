@@ -204,3 +204,4 @@
 {"_e":"metro:instantiate","_t":1785806272776,"atlas":false,"workers":3,"host":"::","port":8081}
 {"_e":"metro:bundling:started","_t":1785806273333,"id":"1","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
 {"_e":"metro:bundling:started","_t":1785806276387,"id":"2","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
+{"_e":"metro:bundling:done","_t":1785806278448,"id":"1","total":2685,"ms":5115.14}
