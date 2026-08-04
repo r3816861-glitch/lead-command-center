@@ -64,3 +64,6 @@
 {"_e":"metro:config","_t":1785781942253,"serverRoot":"../../..","projectRoot":"../../..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
 {"_e":"expo:dev-tools-plugin:load","_t":1785781942692,"plugins":[]}
 {"_e":"metro:instantiate","_t":1785781953504,"atlas":false,"workers":3,"host":"::","port":8081}
+{"_e":"root:init","_t":1785801827243,"format":"v0-jsonl","version":"57.0.11"}
+{"_e":"env:mode","_t":1785801827244,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1785801827249,"mode":"development","files":[],"env":{}}
