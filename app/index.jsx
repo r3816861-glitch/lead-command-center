@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, Linking } from 'react-native';
-import { Phone, MessageSquare, Plus, RefreshCw, CheckCircle, Clock, XCircle, FileCheck } from 'lucide-react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, Linking, ScrollView } from 'react-native';
+import { Phone, MessageSquare, Plus, RefreshCw, CheckCircle, Clock, XCircle, FileCheck, Zap, ShieldAlert, Layers } from 'lucide-react-native';
 import { loadLeads, saveLeads } from '../lib/storage';
 import { scheduleLeadReminder } from '../lib/notifications';
 import { sendAutomatedWhatsApp } from '../lib/whatsapp';
@@ -47,7 +47,6 @@ export default function WarRoomScreen() {
     setModalVisible(false);
     setNote('');
 
-    // Trigger Auto-WhatsApp Template based on outcome
     if (newStatus === 'Doc Pickup') {
       sendAutomatedWhatsApp(selectedLead.phone, selectedLead.name, selectedLead.type, 'DOC_PICKUP');
     } else if (newStatus === 'Hot BT') {
@@ -81,73 +80,82 @@ export default function WarRoomScreen() {
     setNewAmount('');
   };
 
-  // Live Metrics Calculation
   const totalQueue = leads.length;
   const freshCalls = leads.filter(l => l.status === 'Fresh Lead').length;
   const hotConversions = leads.filter(l => l.status === 'Hot BT' || l.status === 'Doc Pickup').length;
 
   return (
     <View style={styles.container}>
-      {/* War Room Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerSub}>RAJ • SALES WAR ROOM</Text>
-          <Text style={styles.headerTitle}>Lead Command Center</Text>
+      {/* 3D Glossy Header */}
+      <View style={styles.headerCard}>
+        <View style={styles.headerBadge}>
+          <Zap size={10} color="#00F0FF" />
+          <Text style={styles.headerSub}>RAJ • 1% CLUB COMMAND CENTER</Text>
         </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={refreshData}>
-          <RefreshCw size={18} color="#00E5FF" />
-        </TouchableOpacity>
+        <View style={styles.headerMain}>
+          <Text style={styles.headerTitle}>Sales War Room</Text>
+          <TouchableOpacity style={styles.glossRefreshBtn} onPress={refreshData}>
+            <RefreshCw size={16} color="#00F0FF" />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Metrics Row */}
+      {/* 3D Floating Metrics Deck */}
       <View style={styles.metricsRow}>
-        <View style={styles.metricCard}>
+        <View style={[styles.metric3dCard, styles.cardGlowCyan]}>
           <Text style={styles.metricVal}>{totalQueue}</Text>
           <Text style={styles.metricLbl}>Total Queue</Text>
         </View>
-        <View style={styles.metricCard}>
-          <Text style={[styles.metricVal, { color: '#00E5FF' }]}>{freshCalls}</Text>
-          <Text style={styles.metricLbl}>Fresh Calls</Text>
+        <View style={[styles.metric3dCard, styles.cardGlowBlue]}>
+          <Text style={[styles.metricVal, { color: '#00F0FF' }]}>{freshCalls}</Text>
+          <Text style={styles.metricLbl}>Fresh Leads</Text>
         </View>
-        <View style={styles.metricCard}>
+        <View style={[styles.metric3dCard, styles.cardGlowGreen]}>
           <Text style={[styles.metricVal, { color: '#10B981' }]}>{hotConversions}</Text>
-          <Text style={styles.metricLbl}>Hot Conversions</Text>
+          <Text style={styles.metricLbl}>Hot Deals</Text>
         </View>
       </View>
 
-      {/* Section Header */}
+      {/* Control Panel Bar */}
       <View style={styles.sectionRow}>
-        <Text style={styles.sectionTitle}>🔥 Active Calling Queue</Text>
-        <TouchableOpacity style={styles.addBtn} onPress={() => setAddLeadModal(true)}>
-          <Plus size={14} color="#0A0E1A" />
-          <Text style={styles.addBtnText}>Add Lead</Text>
+        <View style={styles.sectionTitleRow}>
+          <Layers size={16} color="#00F0FF" />
+          <Text style={styles.sectionTitle}>LIVE QUEUE</Text>
+        </View>
+        <TouchableOpacity style={styles.primary3dBtn} onPress={() => setAddLeadModal(true)}>
+          <Plus size={14} color="#050811" />
+          <Text style={styles.primaryBtnTxt}>+ ADD LEAD</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Queue List */}
+      {/* 3D Lead Cards Stream */}
       <FlatList
         data={leads}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingBottom: 80 }}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        showsVerticalScrollIndicator={false}
         renderItem={({ item }) => (
-          <View style={styles.leadCard}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.leadName}>{item.name}</Text>
-              <Text style={styles.leadDetails}>{item.type} • {item.amount}</Text>
-              <View style={styles.statusBadge}>
+          <View style={styles.lead3dCard}>
+            <View style={styles.leadCardContent}>
+              <View style={styles.leadMainInfo}>
+                <Text style={styles.leadName}>{item.name}</Text>
+                <Text style={styles.leadMeta}>{item.type} • <Text style={styles.amountHighlight}>{item.amount}</Text></Text>
+              </View>
+              <View style={styles.statusPill3d}>
+                <View style={styles.statusDot} />
                 <Text style={styles.statusText}>{item.status}</Text>
               </View>
             </View>
 
-            <View style={styles.cardActions}>
+            <View style={styles.cardActions3d}>
               <TouchableOpacity 
-                style={styles.waIcon}
+                style={styles.waBtn3d}
                 onPress={() => Linking.openURL(`whatsapp://send?phone=91${item.phone.replace(/[^0-9]/g, '')}`)}
               >
                 <MessageSquare size={16} color="#10B981" />
               </TouchableOpacity>
               <TouchableOpacity 
-                style={styles.callIcon}
+                style={styles.callBtn3d}
                 onPress={() => handleCallAction(item)}
               >
                 <Phone size={16} color="#FFF" />
@@ -157,66 +165,69 @@ export default function WarRoomScreen() {
         )}
       />
 
-      {/* Call Outcome Modal */}
+      {/* 3D Glass Modal: Call Outcome */}
       <Modal visible={modalVisible} transparent animationType="slide">
-        <View style={styles.modalBg}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>📞 Call Outcome: {selectedLead?.name}</Text>
-            <Text style={styles.modalSub}>Select post-call status to update pipeline:</Text>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modal3dCard}>
+            <View style={styles.modalHeader}>
+              <ShieldAlert size={20} color="#00F0FF" />
+              <Text style={styles.modalTitle}>Post-Call Intelligence</Text>
+            </View>
+            <Text style={styles.modalSub}>Tag response for {selectedLead?.name}:</Text>
 
             <View style={styles.outcomeGrid}>
-              <TouchableOpacity style={styles.outcomeBtn} onPress={() => updateOutcome('Doc Pickup')}>
+              <TouchableOpacity style={[styles.outcome3dBtn, { borderColor: '#10B981' }]} onPress={() => updateOutcome('Doc Pickup')}>
                 <FileCheck size={18} color="#10B981" />
                 <Text style={styles.outcomeTxt}>Doc Pickup</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.outcomeBtn} onPress={() => updateOutcome('Follow-Up')}>
-                <Clock size={18} color="#00E5FF" />
+              <TouchableOpacity style={[styles.outcome3dBtn, { borderColor: '#00F0FF' }]} onPress={() => updateOutcome('Follow-Up')}>
+                <Clock size={18} color="#00F0FF" />
                 <Text style={styles.outcomeTxt}>Follow-Up</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.outcomeBtn} onPress={() => updateOutcome('Hot BT')}>
+              <TouchableOpacity style={[styles.outcome3dBtn, { borderColor: '#F59E0B' }]} onPress={() => updateOutcome('Hot BT')}>
                 <CheckCircle size={18} color="#F59E0B" />
                 <Text style={styles.outcomeTxt}>Hot BT</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.outcomeBtn} onPress={() => updateOutcome('Not Interested')}>
+              <TouchableOpacity style={[styles.outcome3dBtn, { borderColor: '#EF4444' }]} onPress={() => updateOutcome('Not Interested')}>
                 <XCircle size={18} color="#EF4444" />
                 <Text style={styles.outcomeTxt}>Rejected</Text>
               </TouchableOpacity>
             </View>
 
             <TextInput
-              style={styles.noteInput}
-              placeholder="Add call notes (e.g. 8.5% rate demand)..."
-              placeholderTextColor="#64748B"
+              style={styles.input3d}
+              placeholder="Key objection / Loan ROI demands..."
+              placeholderTextColor="#475569"
               value={note}
               onChangeText={setNote}
             />
 
-            <TouchableOpacity style={styles.closeBtn} onPress={() => setModalVisible(false)}>
-              <Text style={styles.closeBtnTxt}>Cancel</Text>
+            <TouchableOpacity style={styles.closeBtn3d} onPress={() => setModalVisible(false)}>
+              <Text style={styles.closeBtnTxt}>DISCARD</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Add Lead Modal */}
+      {/* 3D Glass Modal: Add Lead */}
       <Modal visible={addLeadModal} transparent animationType="fade">
-        <View style={styles.modalBg}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>➕ Add New Lead</Text>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modal3dCard}>
+            <Text style={styles.modalTitle}>⚡ Add Prospect</Text>
             
-            <TextInput style={styles.formInput} placeholder="Client Name" placeholderTextColor="#64748B" value={newName} onChangeText={setNewName} />
-            <TextInput style={styles.formInput} placeholder="Phone Number" placeholderTextColor="#64748B" keyboardType="phone-pad" value={newPhone} onChangeText={setNewPhone} />
-            <TextInput style={styles.formInput} placeholder="Loan Amount (e.g. 45)" placeholderTextColor="#64748B" keyboardType="numeric" value={newAmount} onChangeText={setNewAmount} />
+            <TextInput style={styles.input3d} placeholder="Client Full Name" placeholderTextColor="#475569" value={newName} onChangeText={setNewName} />
+            <TextInput style={styles.input3d} placeholder="Mobile Number" placeholderTextColor="#475569" keyboardType="phone-pad" value={newPhone} onChangeText={setNewPhone} />
+            <TextInput style={styles.input3d} placeholder="Requirement Amount (in Lakhs)" placeholderTextColor="#475569" keyboardType="numeric" value={newAmount} onChangeText={setNewAmount} />
 
-            <View style={styles.formActions}>
-              <TouchableOpacity style={styles.saveBtn} onPress={handleAddLead}>
-                <Text style={styles.saveBtnTxt}>Save to Queue</Text>
+            <View style={styles.modalFormActions}>
+              <TouchableOpacity style={styles.primary3dBtn} onPress={handleAddLead}>
+                <Text style={styles.primaryBtnTxt}>SAVE LEAD</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.cancelFormBtn} onPress={() => setAddLeadModal(false)}>
-                <Text style={{ color: '#94A3B8' }}>Cancel</Text>
+              <TouchableOpacity style={{ padding: 12 }} onPress={() => setAddLeadModal(false)}>
+                <Text style={{ color: '#64748B', fontWeight: '700' }}>CANCEL</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -227,40 +238,155 @@ export default function WarRoomScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0E1A', padding: 16 },
-  header: { marginTop: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  headerSub: { color: '#00E5FF', fontSize: 10, fontWeight: '700', letterSpacing: 1.5 },
-  headerTitle: { color: '#FFF', fontSize: 20, fontWeight: '800' },
-  refreshBtn: { backgroundColor: '#1E293B', padding: 10, borderRadius: 20, borderWidth: 1, borderColor: '#334155' },
+  container: { flex: 1, backgroundColor: '#050811', padding: 16 },
+  headerCard: {
+    backgroundColor: '#0F172A',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 240, 255, 0.2)',
+    marginBottom: 16,
+    shadowColor: '#00F0FF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 8
+  },
+  headerBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  headerSub: { color: '#00F0FF', fontSize: 10, fontWeight: '800', letterSpacing: 1.5 },
+  headerMain: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headerTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', letterSpacing: 0.5 },
+  glossRefreshBtn: {
+    backgroundColor: 'rgba(0, 240, 255, 0.1)',
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 240, 255, 0.3)'
+  },
   metricsRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
-  metricCard: { flex: 1, backgroundColor: '#1E293B', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#334155', alignItems: 'center' },
-  metricVal: { color: '#FFF', fontSize: 22, fontWeight: '800' },
-  metricLbl: { color: '#64748B', fontSize: 10, fontWeight: '600', marginTop: 2 },
-  sectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  sectionTitle: { color: '#FFF', fontSize: 14, fontWeight: '700' },
-  addBtn: { backgroundColor: '#00E5FF', flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
-  addBtnText: { color: '#0A0E1A', fontSize: 11, fontWeight: '700' },
-  leadCard: { backgroundColor: '#1E293B', padding: 14, borderRadius: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, borderWidth: 1, borderColor: '#334155' },
-  leadName: { color: '#FFF', fontSize: 15, fontWeight: '700' },
-  leadDetails: { color: '#94A3B8', fontSize: 12, marginTop: 2 },
-  statusBadge: { backgroundColor: 'rgba(0, 229, 255, 0.12)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start', marginTop: 6 },
-  statusText: { color: '#00E5FF', fontSize: 10, fontWeight: '600' },
-  cardActions: { flexDirection: 'row', gap: 8 },
-  waIcon: { backgroundColor: '#0F172A', padding: 10, borderRadius: 20, borderWidth: 1, borderColor: '#10B981' },
-  callIcon: { backgroundColor: '#10B981', padding: 10, borderRadius: 20 },
-  modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: '#1E293B', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, borderWidth: 1, borderColor: '#334155' },
-  modalTitle: { color: '#FFF', fontSize: 16, fontWeight: '700' },
-  modalSub: { color: '#94A3B8', fontSize: 12, marginTop: 2, marginBottom: 16 },
+  metric3dCard: {
+    flex: 1,
+    backgroundColor: '#0F172A',
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6
+  },
+  cardGlowCyan: { borderColor: 'rgba(0, 240, 255, 0.2)', shadowColor: '#00F0FF' },
+  cardGlowBlue: { borderColor: 'rgba(59, 130, 246, 0.2)', shadowColor: '#3B82F6' },
+  cardGlowGreen: { borderColor: 'rgba(16, 185, 129, 0.2)', shadowColor: '#10B981' },
+  metricVal: { color: '#FFF', fontSize: 24, fontWeight: '900' },
+  metricLbl: { color: '#64748B', fontSize: 10, fontWeight: '700', marginTop: 2, letterSpacing: 0.5 },
+  sectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  sectionTitle: { color: '#FFF', fontSize: 13, fontWeight: '800', letterSpacing: 1 },
+  primary3dBtn: {
+    backgroundColor: '#00F0FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    shadowColor: '#00F0FF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6
+  },
+  primaryBtnTxt: { color: '#050811', fontSize: 11, fontWeight: '900', letterSpacing: 0.5 },
+  lead3dCard: {
+    backgroundColor: '#0F172A',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    flexDirection: 'row',
+    justify: 'space-between',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 5
+  },
+  leadCardContent: { flex: 1 },
+  leadName: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  leadMeta: { color: '#64748B', fontSize: 12, marginTop: 2, fontWeight: '600' },
+  amountHighlight: { color: '#00F0FF', fontWeight: '700' },
+  statusPill3d: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0, 240, 255, 0.08)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 240, 255, 0.2)'
+  },
+  statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#00F0FF' },
+  statusText: { color: '#00F0FF', fontSize: 10, fontWeight: '700' },
+  cardActions3d: { flexDirection: 'row', gap: 8 },
+  waBtn3d: {
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)'
+  },
+  callBtn3d: {
+    backgroundColor: '#10B981',
+    padding: 10,
+    borderRadius: 12,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 4
+  },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(5, 8, 17, 0.85)', justifyContent: 'flex-end' },
+  modal3dCard: {
+    backgroundColor: '#0F172A',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 240, 255, 0.2)'
+  },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  modalTitle: { color: '#FFF', fontSize: 18, fontWeight: '800' },
+  modalSub: { color: '#64748B', fontSize: 12, marginBottom: 16 },
   outcomeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 },
-  outcomeBtn: { width: '48%', backgroundColor: '#0F172A', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#334155', flexDirection: 'row', alignItems: 'center', gap: 8 },
-  outcomeTxt: { color: '#FFF', fontSize: 12, fontWeight: '600' },
-  noteInput: { backgroundColor: '#0F172A', color: '#FFF', borderRadius: 8, padding: 10, fontSize: 12, borderWidth: 1, borderColor: '#334155', marginBottom: 16 },
-  closeBtn: { alignItems: 'center', paddingVertical: 10 },
-  closeBtnTxt: { color: '#EF4444', fontWeight: '600', fontSize: 13 },
-  formInput: { backgroundColor: '#0F172A', color: '#FFF', borderRadius: 8, padding: 12, fontSize: 13, borderWidth: 1, borderColor: '#334155', marginBottom: 10 },
-  formActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
-  saveBtn: { backgroundColor: '#00E5FF', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
-  saveBtnTxt: { color: '#0A0E1A', fontWeight: '700', fontSize: 13 },
-  cancelFormBtn: { padding: 10 }
+  outcome3dBtn: {
+    width: '48%',
+    backgroundColor: '#050811',
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  outcomeTxt: { color: '#FFF', fontSize: 12, fontWeight: '700' },
+  input3d: {
+    backgroundColor: '#050811',
+    color: '#FFF',
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    marginBottom: 12
+  },
+  modalFormActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
+  closeBtn3d: { alignItems: 'center', paddingVertical: 10 },
+  closeBtnTxt: { color: '#EF4444', fontWeight: '800', fontSize: 12, letterSpacing: 1 }
 });
