@@ -205,3 +205,7 @@
 {"_e":"metro:bundling:started","_t":1785806273333,"id":"1","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
 {"_e":"metro:bundling:started","_t":1785806276387,"id":"2","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
 {"_e":"metro:bundling:done","_t":1785806278448,"id":"1","total":2685,"ms":5115.14}
+{"_e":"metro:bundling:done","_t":1785806279906,"id":"2","total":1,"ms":3519.055}
+{"_e":"metro:client_log","_t":1785806280336,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1785806280666,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1785806280673,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
