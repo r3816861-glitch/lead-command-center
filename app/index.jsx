@@ -27,18 +27,28 @@ export default function WarRoomScreen() {
     setLeads(data);
   };
 
-  const handleCallAction = (lead) => {
-    setSelectedLead(lead);
-    const cleanPhone = lead.phone.replace(/[^0-9]/g, '');
-    Linking.openURL(`tel:${cleanPhone}`).catch(() => Alert.alert('Error', 'Dialer open nahi ho saka.'));
-    setModalVisible(true);
-  };
-
   const updateOutcome = async (newStatus) => {
     const updated = leads.map((item) => {
       if (item.id === selectedLead.id) {
         return { ...item, status: newStatus, notes: note || item.notes };
       }
+      return item;
+    });
+
+    await saveLeads(updated);
+    setLeads(updated);
+    setModalVisible(false);
+    setNote('');
+
+    // Trigger Auto-WhatsApp Template based on outcome
+    if (newStatus === 'Doc Pickup') {
+      sendAutomatedWhatsApp(selectedLead.phone, selectedLead.name, selectedLead.type, 'DOC_PICKUP');
+    } else if (newStatus === 'Hot BT') {
+      sendAutomatedWhatsApp(selectedLead.phone, selectedLead.name, selectedLead.type, 'HOT_BT');
+    } else if (newStatus === 'Follow-Up') {
+      scheduleLeadReminder(selectedLead.name, selectedLead.type, 30);
+    }
+  };
       return item;
     });
 
