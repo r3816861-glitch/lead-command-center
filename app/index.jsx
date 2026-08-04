@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, A
 import { Phone, MessageSquare, Plus, RefreshCw, CheckCircle, Clock, XCircle, FileCheck, Zap, ShieldAlert, Layers } from 'lucide-react-native';
 import { loadLeads, saveLeads } from '../lib/storage';
 import { scheduleLeadReminder } from '../lib/notifications';
-import { sendAutomatedWhatsApp } from '../lib/whatsapp';
+import { sendAutomatedWhatsApp } from '../lib/lib/whatsapp';
 
 export default function WarRoomScreen() {
   const [leads, setLeads] = useState([]);
