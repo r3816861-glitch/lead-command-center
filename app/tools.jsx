@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Clipboard, Alert } from 'react-native';
 import { Zap, Copy, ShieldAlert, Sparkles } from 'lucide-react-native';
-import { generateAIPitch } from '../lib/gemini';
+import { generateAIPitch } from '../lib/lib/gemini';
 
 export default function ToolsScreen() {
   const [objection, setObjection] = useState('');
