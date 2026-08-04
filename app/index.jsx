@@ -1,3 +1,4 @@
+import { sendAutomatedWhatsApp } from '../lib/whatsapp';
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, Linking } from 'react-native';
 import { Phone, MessageSquare, Plus, RefreshCw, CheckCircle, Clock, XCircle, FileCheck } from 'lucide-react-native';
