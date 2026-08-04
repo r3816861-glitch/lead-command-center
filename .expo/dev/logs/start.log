@@ -80,3 +80,4 @@
 {"_e":"metro:bundling:started","_t":1785802069640,"id":"3","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
 {"_e":"metro:bundling:done","_t":1785802071137,"id":"3","total":1,"ms":1497.16}
 {"_e":"metro:client_log","_t":1785802071491,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:bundling:started","_t":1785802267392,"id":"4","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
