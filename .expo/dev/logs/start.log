@@ -73,3 +73,4 @@
 {"_e":"metro:instantiate","_t":1785801842006,"atlas":false,"workers":3,"host":"::","port":8081}
 {"_e":"metro:bundling:started","_t":1785801842457,"id":"1","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
 {"_e":"metro:bundling:done","_t":1785801847395,"id":"1","total":2576,"ms":4936.715}
+{"_e":"metro:client_log","_t":1785801847992,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
