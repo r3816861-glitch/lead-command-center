@@ -27,7 +27,7 @@ export default function WarRoomScreen() {
     setLeads(data);
   };
 
-  const updateOutcome = async (newStatus) => {
+ const updateOutcome = async (newStatus) => {
     const updated = leads.map((item) => {
       if (item.id === selectedLead.id) {
         return { ...item, status: newStatus, notes: note || item.notes };
@@ -49,10 +49,6 @@ export default function WarRoomScreen() {
       scheduleLeadReminder(selectedLead.name, selectedLead.type, 30);
     }
   };
-      return item;
-    });
-
-    await saveLeads(updated);
     setLeads(updated);
     setModalVisible(false);
     setNote('');
