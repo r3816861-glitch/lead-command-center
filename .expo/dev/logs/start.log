@@ -96,3 +96,6 @@
 {"_e":"metro:bundling:done","_t":1785802564995,"id":"8","total":1,"ms":1599.685001}
 {"_e":"metro:client_log","_t":1785802565321,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
 {"_e":"metro:bundling:started","_t":1785802791047,"id":"9","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
+{"_e":"metro:bundling:done","_t":1785802792730,"id":"9","total":1,"ms":1682.76}
+{"_e":"metro:client_log","_t":1785802793171,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1785802793560,"level":"warn","data":["Route \"./tools.jsx\" is missing the required default export. Ensure a React component is exported as default."]}
