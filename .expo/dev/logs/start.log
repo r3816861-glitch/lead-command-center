@@ -142,3 +142,7 @@
 {"_e":"metro:client_log","_t":1785900189928,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
 {"_e":"metro:client_log","_t":1785900189938,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
 {"_e":"metro:bundling:started","_t":1785900286876,"id":"o","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
+{"_e":"metro:bundling:done","_t":1785900288390,"id":"o","total":1,"ms":1513.895}
+{"_e":"metro:client_log","_t":1785900288719,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1785900288807,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1785900288818,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
