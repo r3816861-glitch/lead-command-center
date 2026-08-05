@@ -35,3 +35,4 @@
 {"_e":"metro:bundling:started","_t":1785898633863,"id":"1","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
 {"_e":"metro:bundling:started","_t":1785898633964,"id":"2","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
 {"_e":"metro:bundling:started","_t":1785898635221,"id":"3","platform":"web","environment":null,"entry":"node_modules/expo-router/entry.js"}
+{"_e":"metro:bundling:done","_t":1785898638723,"id":"1","total":2682,"ms":4858.8}
