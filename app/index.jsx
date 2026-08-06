@@ -1,392 +1,504 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, Linking, ScrollView } from 'react-native';
-import { Phone, MessageSquare, Plus, RefreshCw, CheckCircle, Clock, XCircle, FileCheck, Zap, ShieldAlert, Layers } from 'lucide-react-native';
-import { loadLeads, saveLeads } from '../lib/storage';
-import { scheduleLeadReminder } from '../lib/notifications';
-import { sendAutomatedWhatsApp } from '../lib/lib/whatsapp';
+import React, { useState } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  SafeAreaView,
+  StatusBar,
+  Switch,
+  Alert,
+} from 'react-native';
 
-export default function WarRoomScreen() {
-  const [leads, setLeads] = useState([]);
-  const [selectedLead, setSelectedLead] = useState(null);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [addLeadModal, setAddLeadModal] = useState(false);
-  const [note, setNote] = useState('');
+export default function LeadCommandCenter() {
+  const [activeTab, setActiveTab] = useState('pipeline');
+  const [aiRadarActive, setAiRadarActive] = useState(false);
+  const [selectedStatus, setSelectedStatus] = useState('Today Calls');
 
-  // New Lead Form State
-  const [newName, setNewName] = useState('');
-  const [newPhone, setNewPhone] = useState('');
-  const [newType, setNewType] = useState('LAP BT');
-  const [newAmount, setNewAmount] = useState('');
+  // Auto-fill state sample
+  const [leadForm, setLeadForm] = useState({
+    name: 'Rajesh Sharma',
+    phone: '9876543210',
+    income: '12,00,000 ITR',
+    propertyValue: '85,00,000',
+    loanType: 'LAP',
+    loanAmount: '45,00,000',
+  });
 
-  useEffect(() => {
-    refreshData();
-  }, []);
+  const [objectionInput, setObjectionInput] = useState('');
+  const [objectionScript, setObjectionScript] = useState('');
 
-  const refreshData = async () => {
-    const data = await loadLeads();
-    setLeads(data);
-  };
-
-  const handleCallAction = (lead) => {
-    setSelectedLead(lead);
-    const cleanPhone = lead.phone.replace(/[^0-9]/g, '');
-    Linking.openURL(`tel:${cleanPhone}`).catch(() => Alert.alert('Error', 'Dialer open nahi ho saka.'));
-    setModalVisible(true);
-  };
-
-  const updateOutcome = async (newStatus) => {
-    const updated = leads.map((item) => {
-      if (item.id === selectedLead.id) {
-        return { ...item, status: newStatus, notes: note || item.notes };
-      }
-      return item;
+  const autoFillSample = () => {
+    setLeadForm({
+      name: 'Vikas Malhotra',
+      phone: '9811223344',
+      income: '18,00,000 ITR',
+      propertyValue: '1,20,00,000',
+      loanType: 'MSME Business Loan',
+      loanAmount: '60,00,000',
     });
-
-    await saveLeads(updated);
-    setLeads(updated);
-    setModalVisible(false);
-    setNote('');
-
-    if (newStatus === 'Doc Pickup') {
-      sendAutomatedWhatsApp(selectedLead.phone, selectedLead.name, selectedLead.type, 'DOC_PICKUP');
-    } else if (newStatus === 'Hot BT') {
-      sendAutomatedWhatsApp(selectedLead.phone, selectedLead.name, selectedLead.type, 'HOT_BT');
-    } else if (newStatus === 'Follow-Up') {
-      scheduleLeadReminder(selectedLead.name, selectedLead.type, 30);
-    }
   };
 
-  const handleAddLead = async () => {
-    if (!newName || !newPhone) {
-      Alert.alert('Incomplete Data', 'Name aur Phone number zaroori hai.');
-      return;
+  const handleObjectionSolve = () => {
+    if (objectionInput.toLowerCase().includes('rate') || objectionInput.toLowerCase().includes('interest')) {
+      setObjectionScript('Hook: "Sir, rate 8.5% dikhta hai paper par, hidden processing fees 2% jodoge toh 10.5% padega. Aapko final net payout kitna mil raha hai?"');
+    } else {
+      setObjectionScript('Hook: "Sir, 30 second me bolta hu, pasand na aaye toh call kaat dena. Loan lena nahi hai, bas aapki baseline limit locked rakhne ke liye bata raha hu."');
     }
-
-    const newEntry = {
-      id: Date.now().toString(),
-      name: newName,
-      type: newType,
-      amount: newAmount ? `₹${newAmount} Lakhs` : '₹25 Lakhs',
-      phone: newPhone,
-      status: 'Fresh Lead'
-    };
-
-    const updatedList = [newEntry, ...leads];
-    await saveLeads(updatedList);
-    setLeads(updatedList);
-    setAddLeadModal(false);
-    setNewName('');
-    setNewPhone('');
-    setNewAmount('');
   };
-
-  const totalQueue = leads.length;
-  const freshCalls = leads.filter(l => l.status === 'Fresh Lead').length;
-  const hotConversions = leads.filter(l => l.status === 'Hot BT' || l.status === 'Doc Pickup').length;
 
   return (
-    <View style={styles.container}>
-      {/* 3D Glossy Header */}
-      <View style={styles.headerCard}>
-        <View style={styles.headerBadge}>
-          <Zap size={10} color="#00F0FF" />
-          <Text style={styles.headerSub}>RAJ • 1% CLUB COMMAND CENTER</Text>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F4F6F8" />
+      
+      {/* Top Header */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.headerTitle}>Lead Command Center</Text>
+          <Text style={styles.headerSubtitle}>NCR High-Conversion Sales Suite</Text>
         </View>
-        <View style={styles.headerMain}>
-          <Text style={styles.headerTitle}>Sales War Room</Text>
-          <TouchableOpacity style={styles.glossRefreshBtn} onPress={refreshData}>
-            <RefreshCw size={16} color="#00F0FF" />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* 3D Floating Metrics Deck */}
-      <View style={styles.metricsRow}>
-        <View style={[styles.metric3dCard, styles.cardGlowCyan]}>
-          <Text style={styles.metricVal}>{totalQueue}</Text>
-          <Text style={styles.metricLbl}>Total Queue</Text>
-        </View>
-        <View style={[styles.metric3dCard, styles.cardGlowBlue]}>
-          <Text style={[styles.metricVal, { color: '#00F0FF' }]}>{freshCalls}</Text>
-          <Text style={styles.metricLbl}>Fresh Leads</Text>
-        </View>
-        <View style={[styles.metric3dCard, styles.cardGlowGreen]}>
-          <Text style={[styles.metricVal, { color: '#10B981' }]}>{hotConversions}</Text>
-          <Text style={styles.metricLbl}>Hot Deals</Text>
-        </View>
-      </View>
-
-      {/* Control Panel Bar */}
-      <View style={styles.sectionRow}>
-        <View style={styles.sectionTitleRow}>
-          <Layers size={16} color="#00F0FF" />
-          <Text style={styles.sectionTitle}>LIVE QUEUE</Text>
-        </View>
-        <TouchableOpacity style={styles.primary3dBtn} onPress={() => setAddLeadModal(true)}>
-          <Plus size={14} color="#050811" />
-          <Text style={styles.primaryBtnTxt}>+ ADD LEAD</Text>
+        <TouchableOpacity style={styles.autoFillBtn} onPress={autoFillSample}>
+          <Text style={styles.autoFillBtnText}>⚡ Auto-Fill</Text>
         </TouchableOpacity>
       </View>
 
-      {/* 3D Lead Cards Stream */}
-      <FlatList
-        data={leads}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingBottom: 100 }}
-        showsVerticalScrollIndicator={false}
-        renderItem={({ item }) => (
-          <View style={styles.lead3dCard}>
-            <View style={styles.leadCardContent}>
-              <View style={styles.leadMainInfo}>
-                <Text style={styles.leadName}>{item.name}</Text>
-                <Text style={styles.leadMeta}>{item.type} • <Text style={styles.amountHighlight}>{item.amount}</Text></Text>
-              </View>
-              <View style={styles.statusPill3d}>
-                <View style={styles.statusDot} />
-                <Text style={styles.statusText}>{item.status}</Text>
-              </View>
-            </View>
+      {/* Navigation Tabs */}
+      <View style={styles.navBar}>
+        {['pipeline', 'ai-radar', 'scripts', 'objections', 'voice-audit'].map((tab) => (
+          <TouchableOpacity
+            key={tab}
+            style={[styles.navTab, activeTab === tab && styles.activeNavTab]}
+            onPress={() => setActiveTab(tab)}
+          >
+            <Text style={[styles.navTabText, activeTab === tab && styles.activeNavTabText]}>
+              {tab === 'pipeline' ? 'Leads' : tab === 'ai-radar' ? 'AI Radar' : tab === 'scripts' ? 'Scripts' : tab === 'objections' ? 'Objections' : 'Voice Audit'}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
-            <View style={styles.cardActions3d}>
-              <TouchableOpacity 
-                style={styles.waBtn3d}
-                onPress={() => Linking.openURL(`whatsapp://send?phone=91${item.phone.replace(/[^0-9]/g, '')}`)}
-              >
-                <MessageSquare size={16} color="#10B981" />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.callBtn3d}
-                onPress={() => handleCallAction(item)}
-              >
-                <Phone size={16} color="#FFF" />
-              </TouchableOpacity>
+      <ScrollView style={styles.content}>
+        {/* TAB 1: PIPELINE & LEADS */}
+        {activeTab === 'pipeline' && (
+          <View>
+            {/* Action Buckets */}
+            <Text style={styles.sectionLabel}>Lifecycle Status</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.bucketContainer}>
+              {['Today Calls', 'Callback', 'Follow-up', 'Sanctioned', 'Disbursed', 'Hold', 'Lost'].map((status) => (
+                <TouchableOpacity
+                  key={status}
+                  style={[styles.bucketChip, selectedStatus === status && styles.activeBucketChip]}
+                  onPress={() => setSelectedStatus(status)}
+                >
+                  <Text style={[styles.bucketText, selectedStatus === status && styles.activeBucketText]}>
+                    {status}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {/* Lead Card & Complete Form */}
+            <View style={styles.card}>
+              <Text style={styles.cardHeader}>Active Lead Profile</Text>
+              
+              <View style={styles.inputRow}>
+                <View style={styles.inputHalf}>
+                  <Text style={styles.fieldLabel}>Client Name</Text>
+                  <TextInput style={styles.input} value={leadForm.name} onChangeText={(t) => setLeadForm({...leadForm, name: t})} />
+                </View>
+                <View style={styles.inputHalf}>
+                  <Text style={styles.fieldLabel}>Phone</Text>
+                  <TextInput style={styles.input} value={leadForm.phone} keyboardType="phone-pad" onChangeText={(t) => setLeadForm({...leadForm, phone: t})} />
+                </View>
+              </View>
+
+              <View style={styles.inputRow}>
+                <View style={styles.inputHalf}>
+                  <Text style={styles.fieldLabel}>Annual Income / ITR</Text>
+                  <TextInput style={styles.input} value={leadForm.income} onChangeText={(t) => setLeadForm({...leadForm, income: t})} />
+                </View>
+                <View style={styles.inputHalf}>
+                  <Text style={styles.fieldLabel}>Property Value</Text>
+                  <TextInput style={styles.input} value={leadForm.propertyValue} onChangeText={(t) => setLeadForm({...leadForm, propertyValue: t})} />
+                </View>
+              </View>
+
+              <View style={styles.inputRow}>
+                <View style={styles.inputHalf}>
+                  <Text style={styles.fieldLabel}>Loan Type (LAP/Home/MSME)</Text>
+                  <TextInput style={styles.input} value={leadForm.loanType} onChangeText={(t) => setLeadForm({...leadForm, loanType: t})} />
+                </View>
+                <View style={styles.inputHalf}>
+                  <Text style={styles.fieldLabel}>Required Loan Amount</Text>
+                  <TextInput style={styles.input} value={leadForm.loanAmount} onChangeText={(t) => setLeadForm({...leadForm, loanAmount: t})} />
+                </View>
+              </View>
+
+              <View style={styles.actionRow}>
+                <TouchableOpacity style={styles.primaryBtn}>
+                  <Text style={styles.btnText}>Call Lead Now</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.secondaryBtn}>
+                  <Text style={styles.secondaryBtnText}>Save Status</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         )}
-      />
 
-      {/* 3D Glass Modal: Call Outcome */}
-      <Modal visible={modalVisible} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modal3dCard}>
-            <View style={styles.modalHeader}>
-              <ShieldAlert size={20} color="#00F0FF" />
-              <Text style={styles.modalTitle}>Post-Call Intelligence</Text>
-            </View>
-            <Text style={styles.modalSub}>Tag response for {selectedLead?.name}:</Text>
+        {/* TAB 2: AI RADAR & AUTONOMOUS CALLER */}
+        {activeTab === 'ai-radar' && (
+          <View style={styles.card}>
+            <Text style={styles.cardHeader}>AI Voice Radar Guardrails</Text>
+            <Text style={styles.cardDesc}>
+              Controls automated pre-qualification calls. Strictly locked within approved scripts to avoid reputation risk.
+            </Text>
 
-            <View style={styles.outcomeGrid}>
-              <TouchableOpacity style={[styles.outcome3dBtn, { borderColor: '#10B981' }]} onPress={() => updateOutcome('Doc Pickup')}>
-                <FileCheck size={18} color="#10B981" />
-                <Text style={styles.outcomeTxt}>Doc Pickup</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={[styles.outcome3dBtn, { borderColor: '#00F0FF' }]} onPress={() => updateOutcome('Follow-Up')}>
-                <Clock size={18} color="#00F0FF" />
-                <Text style={styles.outcomeTxt}>Follow-Up</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={[styles.outcome3dBtn, { borderColor: '#F59E0B' }]} onPress={() => updateOutcome('Hot BT')}>
-                <CheckCircle size={18} color="#F59E0B" />
-                <Text style={styles.outcomeTxt}>Hot BT</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={[styles.outcome3dBtn, { borderColor: '#EF4444' }]} onPress={() => updateOutcome('Not Interested')}>
-                <XCircle size={18} color="#EF4444" />
-                <Text style={styles.outcomeTxt}>Rejected</Text>
-              </TouchableOpacity>
+            <View style={styles.toggleRow}>
+              <Text style={styles.toggleLabel}>Autonomous Calling Agent</Text>
+              <Switch
+                value={aiRadarActive}
+                onValueChange={(v) => {
+                  setAiRadarActive(v);
+                  if(v) Alert.alert('AI Guardrails Enabled', 'Agent will only screen cold leads using approved 5-second hooks.');
+                }}
+                trackColor={{ false: '#D0D5DD', true: '#00D09C' }}
+              />
             </View>
 
-            <TextInput
-              style={styles.input3d}
-              placeholder="Key objection / Loan ROI demands..."
-              placeholderTextColor="#475569"
-              value={note}
-              onChangeText={setNote}
-            />
-
-            <TouchableOpacity style={styles.closeBtn3d} onPress={() => setModalVisible(false)}>
-              <Text style={styles.closeBtnTxt}>DISCARD</Text>
-            </TouchableOpacity>
+            <View style={styles.metricBox}>
+              <Text style={styles.metricTitle}>Queue Status</Text>
+              <Text style={styles.metricValue}>1,000 Uncalled Leads Loaded</Text>
+              <Text style={styles.metricSub}>Safety Rule: Agent transfers immediately if customer shows high interest or asks complex rate queries.</Text>
+            </View>
           </View>
-        </View>
-      </Modal>
+        )}
 
-      {/* 3D Glass Modal: Add Lead */}
-      <Modal visible={addLeadModal} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modal3dCard}>
-            <Text style={styles.modalTitle}>⚡ Add Prospect</Text>
+        {/* TAB 3: PSYCHOLOGICAL SCRIPTS */}
+        {activeTab === 'scripts' && (
+          <View style={styles.card}>
+            <Text style={styles.cardHeader}>High-Conversion Cold Call Hooks (5-8s)</Text>
             
-            <TextInput style={styles.input3d} placeholder="Client Full Name" placeholderTextColor="#475569" value={newName} onChangeText={setNewName} />
-            <TextInput style={styles.input3d} placeholder="Mobile Number" placeholderTextColor="#475569" keyboardType="phone-pad" value={newPhone} onChangeText={setNewPhone} />
-            <TextInput style={styles.input3d} placeholder="Requirement Amount (in Lakhs)" placeholderTextColor="#475569" keyboardType="numeric" value={newAmount} onChangeText={setNewAmount} />
+            <View style={styles.scriptBox}>
+              <Text style={styles.scriptTag}>Hook 1: LAP / Property Owner</Text>
+              <Text style={styles.scriptText}>
+                "Sir, aapke property par standard rate se 1.5% kam ka sanctioned quota pending hai. Clear karun ya hold pe rakhun?"
+              </Text>
+            </View>
 
-            <View style={styles.modalFormActions}>
-              <TouchableOpacity style={styles.primary3dBtn} onPress={handleAddLead}>
-                <Text style={styles.primaryBtnTxt}>SAVE LEAD</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={{ padding: 12 }} onPress={() => setAddLeadModal(false)}>
-                <Text style={{ color: '#64748B', fontWeight: '700' }}>CANCEL</Text>
-              </TouchableOpacity>
+            <View style={styles.scriptBox}>
+              <Text style={styles.scriptTag}>Hook 2: MSME / Business Credit</Text>
+              <Text style={styles.scriptText}>
+                "Sir, bina collateral ke business turnover pe 50 Lakhs limit pre-approve hui hai. Filhal requirement hai ya next quarter dekhen?"
+              </Text>
             </View>
           </View>
-        </View>
-      </Modal>
-    </View>
+        )}
+
+        {/* TAB 4: OBJECTION HANDLER */}
+        {activeTab === 'objections' && (
+          <View style={styles.card}>
+            <Text style={styles.cardHeader}>Real-Time Objection Neutralizer</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Type customer objection (e.g. Rate high hai / Interest low hai)"
+              placeholderTextColor="#98A2B3"
+              value={objectionInput}
+              onChangeText={setObjectionInput}
+            />
+            <TouchableOpacity style={styles.primaryBtn} onPress={handleObjectionSolve}>
+              <Text style={styles.btnText}>Generate Lethal Counter</Text>
+            </TouchableOpacity>
+
+            {objectionScript ? (
+              <View style={styles.resultBox}>
+                <Text style={styles.resultText}>{objectionScript}</Text>
+              </View>
+            ) : null}
+          </View>
+        )}
+
+        {/* TAB 5: VOICE & PITCH AUDITOR */}
+        {activeTab === 'voice-audit' && (
+          <View style={styles.card}>
+            <Text style={styles.cardHeader}>Live Pitch & Tone Auditor</Text>
+            <Text style={styles.cardDesc}>
+              Upload or record daily calls to analyze pace, confidence, objection handling, and pitch conversion score.
+            </Text>
+
+            <TouchableOpacity style={styles.recordBtn}>
+              <Text style={styles.btnText}>🎙️ Record / Analyze Call Session</Text>
+            </TouchableOpacity>
+
+            <View style={styles.auditCard}>
+              <Text style={styles.auditTitle}>Daily Pitch Feedback</Text>
+              <Text style={styles.auditItem}>• Pace: 140 WPM (Optimal)</Text>
+              <Text style={styles.auditItem}>• Energy Level: High - Assertive</Text>
+              <Text style={styles.auditItem}>• Improvement: Reduce pause duration after customer says "Send on WhatsApp". Use instant rebuttal hook.</Text>
+            </View>
+          </View>
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#050811', padding: 16 },
-  headerCard: {
-    backgroundColor: '#0F172A',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 240, 255, 0.2)',
-    marginBottom: 16,
-    shadowColor: '#00F0FF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 8
-  },
-  headerBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-  headerSub: { color: '#00F0FF', fontSize: 10, fontWeight: '800', letterSpacing: 1.5 },
-  headerMain: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  headerTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', letterSpacing: 0.5 },
-  glossRefreshBtn: {
-    backgroundColor: 'rgba(0, 240, 255, 0.1)',
-    padding: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 240, 255, 0.3)'
-  },
-  metricsRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
-  metric3dCard: {
+  container: {
     flex: 1,
-    backgroundColor: '#0F172A',
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    alignItems: 'center',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6
+    backgroundColor: '#F4F6F8',
   },
-  cardGlowCyan: { borderColor: 'rgba(0, 240, 255, 0.2)', shadowColor: '#00F0FF' },
-  cardGlowBlue: { borderColor: 'rgba(59, 130, 246, 0.2)', shadowColor: '#3B82F6' },
-  cardGlowGreen: { borderColor: 'rgba(16, 185, 129, 0.2)', shadowColor: '#10B981' },
-  metricVal: { color: '#FFF', fontSize: 24, fontWeight: '900' },
-  metricLbl: { color: '#64748B', fontSize: 10, fontWeight: '700', marginTop: 2, letterSpacing: 0.5 },
-  sectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  sectionTitle: { color: '#FFF', fontSize: 13, fontWeight: '800', letterSpacing: 1 },
-  primary3dBtn: {
-    backgroundColor: '#00F0FF',
+  header: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
-    shadowColor: '#00F0FF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 6
+    borderBottomWidth: 1,
+    borderBottomColor: '#E4E7EC',
   },
-  primaryBtnTxt: { color: '#050811', fontSize: 11, fontWeight: '900', letterSpacing: 0.5 },
-  lead3dCard: {
-    backgroundColor: '#0F172A',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    flexDirection: 'row',
-    justify: 'space-between',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-    elevation: 5
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#101828',
   },
-  leadCardContent: { flex: 1 },
-  leadName: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
-  leadMeta: { color: '#64748B', fontSize: 12, marginTop: 2, fontWeight: '600' },
-  amountHighlight: { color: '#00F0FF', fontWeight: '700' },
-  statusPill3d: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(0, 240, 255, 0.08)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 20,
-    alignSelf: 'flex-start',
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 240, 255, 0.2)'
-  },
-  statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#00F0FF' },
-  statusText: { color: '#00F0FF', fontSize: 10, fontWeight: '700' },
-  cardActions3d: { flexDirection: 'row', gap: 8 },
-  waBtn3d: {
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    padding: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.3)'
-  },
-  callBtn3d: {
-    backgroundColor: '#10B981',
-    padding: 10,
-    borderRadius: 12,
-    shadowColor: '#10B981',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-    elevation: 4
-  },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(5, 8, 17, 0.85)', justifyContent: 'flex-end' },
-  modal3dCard: {
-    backgroundColor: '#0F172A',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 240, 255, 0.2)'
-  },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  modalTitle: { color: '#FFF', fontSize: 18, fontWeight: '800' },
-  modalSub: { color: '#64748B', fontSize: 12, marginBottom: 16 },
-  outcomeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 },
-  outcome3dBtn: {
-    width: '48%',
-    backgroundColor: '#050811',
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8
-  },
-  outcomeTxt: { color: '#FFF', fontSize: 12, fontWeight: '700' },
-  input3d: {
-    backgroundColor: '#050811',
-    color: '#FFF',
-    borderRadius: 10,
-    padding: 12,
+  headerSubtitle: {
     fontSize: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    marginBottom: 12
+    color: '#667085',
   },
-  modalFormActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
-  closeBtn3d: { alignItems: 'center', paddingVertical: 10 },
-  closeBtnTxt: { color: '#EF4444', fontWeight: '800', fontSize: 12, letterSpacing: 1 }
+  autoFillBtn: {
+    backgroundColor: '#E6F4EA',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  autoFillBtnText: {
+    color: '#00D09C',
+    fontWeight: '600',
+    fontSize: 12,
+  },
+  navBar: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E4E7EC',
+  },
+  navTab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  activeNavTab: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#00D09C',
+  },
+  navTabText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#667085',
+  },
+  activeNavTabText: {
+    color: '#00D09C',
+    fontWeight: '700',
+  },
+  content: {
+    padding: 16,
+  },
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#344054',
+    marginBottom: 8,
+  },
+  bucketContainer: {
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  bucketChip: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#D0D5DD',
+  },
+  activeBucketChip: {
+    backgroundColor: '#00D09C',
+    borderColor: '#00D09C',
+  },
+  bucketText: {
+    fontSize: 12,
+    color: '#344054',
+  },
+  activeBucketText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E4E7EC',
+  },
+  cardHeader: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#101828',
+    marginBottom: 4,
+  },
+  cardDesc: {
+    fontSize: 12,
+    color: '#667085',
+    marginBottom: 12,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  inputHalf: {
+    width: '48%',
+  },
+  fieldLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#344054',
+    marginBottom: 4,
+  },
+  input: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#D0D5DD',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: '#101828',
+    marginBottom: 8,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  primaryBtn: {
+    backgroundColor: '#00D09C',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 6,
+  },
+  secondaryBtn: {
+    backgroundColor: '#F2F4F7',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    flex: 1,
+    marginLeft: 6,
+  },
+  btnText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  secondaryBtnText: {
+    color: '#344054',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginVertical: 12,
+  },
+  toggleLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#101828',
+  },
+  metricBox: {
+    backgroundColor: '#F9FAFB',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  metricTitle: {
+    fontSize: 12,
+    color: '#667085',
+  },
+  metricValue: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#101828',
+    marginVertical: 4,
+  },
+  metricSub: {
+    fontSize: 11,
+    color: '#475467',
+  },
+  scriptBox: {
+    backgroundColor: '#F9FAFB',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#00D09C',
+  },
+  scriptTag: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#00D09C',
+    marginBottom: 4,
+  },
+  scriptText: {
+    fontSize: 13,
+    color: '#101828',
+    lineHeight: 18,
+  },
+  resultBox: {
+    backgroundColor: '#E6F4EA',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 12,
+  },
+  resultText: {
+    fontSize: 13,
+    color: '#0F5132',
+    fontWeight: '500',
+  },
+  recordBtn: {
+    backgroundColor: '#101828',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  auditCard: {
+    backgroundColor: '#F9FAFB',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  auditTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#101828',
+    marginBottom: 6,
+  },
+  auditItem: {
+    fontSize: 12,
+    color: '#344054',
+    marginBottom: 4,
+  },
 });
